@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -55,6 +56,9 @@ type URL struct {
 	URL      string // http://example.com/thing/1234/
 	CleanURL string // URL with masked user credentials, used for output
 }
+
+//nolint:gochecknoglobals
+var queryStringValueRegex = regexp.MustCompile("=[^&]*")
 
 // NewURL returns a new URL for the provided url and name. The error is returned if the url provided
 // can't be parsed
@@ -245,7 +249,11 @@ func MakeRequest(ctx context.Context, preq *ParsedHTTPRequest) (*Response, error
 
 	// Only set the name system tag if the user didn't explicitly set it beforehand
 	if _, ok := tags["name"]; !ok && state.Options.SystemTags["name"] {
-		tags["name"] = preq.URL.Name
+		var name = preq.URL.Name
+		if state.Options.AnonymizeQueryStringValues.Bool {
+			name = queryStringValueRegex.ReplaceAllString(name, "=[]")
+		}
+		tags["name"] = name
 	}
 	if state.Options.SystemTags["group"] {
 		tags["group"] = state.Group.Path
