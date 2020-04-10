@@ -22,7 +22,6 @@ package executor
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -252,9 +251,9 @@ func TestVariableArrivalRateCal(t *testing.T) {
 		et := testCase.et
 		expectedTimes := testCase.expectedTimes
 
-		t.Run(fmt.Sprintf("%v", et), func(t *testing.T) { // TODO implement String on ExecutionTuple
+		t.Run(et.String(), func(t *testing.T) {
 			var ch = make(chan time.Duration)
-			go config.cal(et, ch)
+			config.cal(et, ch)
 			var changes = make([]time.Duration, 0, len(expectedTimes))
 			for c := range ch {
 				changes = append(changes, c)
@@ -271,34 +270,79 @@ func TestVariableArrivalRateCal(t *testing.T) {
 
 func BenchmarkCal(b *testing.B) {
 	for _, t := range []time.Duration{
-		time.Second, time.Minute,
+		time.Second, time.Minute, 5 * time.Minute,
 	} {
 		t := t
-		b.Run(t.String(), func(b *testing.B) {
-			var config = VariableArrivalRateConfig{
-				TimeUnit:  types.NullDurationFrom(time.Second),
-				StartRate: null.IntFrom(50),
-				Stages: []Stage{
-					{
-						Duration: types.NullDurationFrom(t),
-						Target:   null.IntFrom(49),
-					},
-					{
-						Duration: types.NullDurationFrom(t),
-						Target:   null.IntFrom(50),
-					},
+		var config = VariableArrivalRateConfig{
+			TimeUnit:  types.NullDurationFrom(time.Second),
+			StartRate: null.IntFrom(0),
+			Stages: []Stage{
+				{
+					Duration: types.NullDurationFrom(t),
+					Target:   null.IntFrom(500),
 				},
-			}
-			et := mustNewExecutionTuple(nil, nil)
+				{
+					Duration: types.NullDurationFrom(t),
+					Target:   null.IntFrom(500),
+				},
+			},
+		}
+		et := mustNewExecutionTuple(nil, nil)
 
-			b.ResetTimer()
+		b.Run(t.String(), func(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					var ch = make(chan time.Duration, 20)
-					go config.cal(et, ch)
+					config.cal(et, ch)
 					for c := range ch {
 						_ = c
 					}
+				}
+			})
+		})
+		b.Run(t.String()+"no channel", func(b *testing.B) {
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					start, offsets, _ := et.GetStripedOffsets(et.ES)
+					timeUnit := time.Duration(config.TimeUnit.Duration).Nanoseconds()
+					var state = newStageTransitionCalculator(start, offsets, config.StartRate.ValueOrZero(), timeUnit, config.Stages)
+					for state.more() {
+						_ = state.nextEvent()
+					}
+				}
+			})
+		})
+
+		b.Run(t.String()+"no channel manual loop", func(b *testing.B) {
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					start, offsets, _ := et.GetStripedOffsets(et.ES)
+					timeUnit := time.Duration(config.TimeUnit.Duration).Nanoseconds()
+					var state = newStageTransitionCalculator(start, offsets, config.StartRate.ValueOrZero(), timeUnit, config.Stages)
+					for ok := true; ok; ok = state.nextStage() {
+						if state.toMinusFrom == 0 {
+							for ; state.index <= state.endCount; state.updateIndex() {
+								_ = time.Duration(constantForStep(state)) + state.stageStart
+							}
+						} else {
+							for ; state.index <= state.endCount; state.updateIndex() {
+								_ = time.Duration(linearRampForStep(state)) + state.stageStart
+							}
+						}
+					}
+				}
+			})
+		})
+
+		b.Run(t.String()+"no channel loop with func", func(b *testing.B) {
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					start, offsets, _ := et.GetStripedOffsets(et.ES)
+					timeUnit := time.Duration(config.TimeUnit.Duration).Nanoseconds()
+					var state = newStageTransitionCalculator(start, offsets, config.StartRate.ValueOrZero(), timeUnit, config.Stages)
+					state.loop(func(t time.Duration) {
+						_ = t
+					})
 				}
 			})
 		})
@@ -394,7 +438,7 @@ func TestCompareCalImplementation(t *testing.T) {
 	var chRat = make(chan time.Duration, 20)
 	var ch = make(chan time.Duration, 20)
 	go config.calRat(et, chRat)
-	go config.cal(et, ch)
+	config.cal(et, ch)
 	count := 0
 	var diff int
 	for c := range ch {

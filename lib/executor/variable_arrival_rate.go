@@ -177,48 +177,14 @@ type VariableArrivalRate struct {
 var _ lib.Executor = &VariableArrivalRate{}
 
 func (varc VariableArrivalRateConfig) cal(et *lib.ExecutionTuple, ch chan<- time.Duration) {
-	// TODO: add inline comments with explanation of what is happening
-	// for now just link to https://github.com/loadimpact/k6/issues/1299#issuecomment-575661084
-	// TODO: rewrite this as state based functions/lambdas or something, drop the channel and let the user call
-	// it and precalculate the values, something like the `next` below
 	start, offsets, _ := et.GetStripedOffsets(et.ES)
-	li := -1
-	// TODO: move this to a utility function, or directly what GetStripedOffsets uses once we see everywhere we will use it
-	next := func() int64 {
-		li++
-		return offsets[li%len(offsets)]
-	}
-	defer close(ch) // TODO: maybe this is not a good design - closing a channel we get
-	var (
-		stageStart                   time.Duration
-		timeUnit                     = time.Duration(varc.TimeUnit.Duration).Nanoseconds() // TODO: test
-		doneSoFar, endCount, to, dur float64
-		from                         = float64(varc.StartRate.ValueOrZero()) / float64(timeUnit)
-		i                            = float64(start + 1)
-	)
+	timeUnit := time.Duration(varc.TimeUnit.Duration).Nanoseconds()
+	var state = newStageTransitionCalculator(start, offsets, varc.StartRate.ValueOrZero(), timeUnit, varc.Stages)
 
-	for _, stage := range varc.Stages {
-		to = float64(stage.Target.ValueOrZero()) / float64(timeUnit)
-		dur = float64(time.Duration(stage.Duration.Duration).Nanoseconds())
-		if from != to { // ramp up/down
-			endCount += dur * ((to-from)/2 + from)
-			for ; i <= endCount; i += float64(next()) {
-				// TODO: try to twist this in a way to be able to get i (the only changing part)
-				// somewhere where it is less in the middle of the equation
-				x := (from*dur - math.Sqrt(dur*(from*from*dur+2*(i-doneSoFar)*(to-from)))) / (from - to)
-
-				ch <- time.Duration(x) + stageStart
-			}
-		} else {
-			endCount += dur * to
-			for ; i <= endCount; i += float64(next()) {
-				ch <- time.Duration((i-doneSoFar)/to) + stageStart
-			}
-		}
-		doneSoFar = endCount
-		from = to
-		stageStart += time.Duration(stage.Duration.Duration)
-	}
+	go func() {
+		defer close(ch) // TODO: maybe this is not a good design - closing a channel we receive
+		state.loop(func(t time.Duration) { ch <- t })
+	}()
 }
 
 // Run executes a variable number of iterations per second.
@@ -313,7 +279,7 @@ func (varr VariableArrivalRate) Run(ctx context.Context, out chan<- stats.Sample
 	var start = time.Now()
 	var ch = make(chan time.Duration, 10) // buffer 10 iteration times ahead
 	var prevTime time.Duration
-	go varr.config.cal(varr.executionState.ExecutionTuple, ch)
+	varr.config.cal(varr.executionState.ExecutionTuple, ch)
 	for nextTime := range ch {
 		select {
 		case <-regDurationDone:
