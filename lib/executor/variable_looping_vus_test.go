@@ -772,6 +772,26 @@ func BenchmarkVariableLoopingVUsGetRawExecutionSteps(b *testing.B) {
 			name:   "normal",
 			stages: `[{"duration":"5m", "target":5000},{"duration":"5m", "target":5000},{"duration":"5m", "target":10000},{"duration":"5m", "target":10000}]`,
 		}, {
+			name: "jumpy",
+			stages: `[{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":0},
+				{"duration":"5m", "target":5000},{"duration":"0s", "target":5432}]`,
+		}, {
 			name: "rollercoaster",
 			stages: `[{"duration":"5m", "target":5000},{"duration":"5m", "target":0},
 				{"duration":"5m", "target":5000},{"duration":"5m", "target":0},
@@ -933,7 +953,7 @@ func TestSegmentedIndex(t *testing.T) {
 	})
 
 	t.Run("strange", func(t *testing.T) {
-		s := segmentedIndex{start: 1, lcd: 7, offsets: []int64{4, 3}}
+		s := segmentedIndex{start: 1, lcd: 7, offsets: []int64{4, 3}, jumps: []int64{1, 5}}
 
 		s.next()
 		assert.EqualValues(t, 2, s.unscaled)

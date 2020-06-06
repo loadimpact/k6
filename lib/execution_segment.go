@@ -494,9 +494,9 @@ type ExecutionSegmentSequenceWrapper struct {
 	ExecutionSegmentSequence       // a filled-out segment sequence
 	lcd                      int64 // pre-calculated least common denominator
 
-	// The striped offsets, i.e. the repeating indexes that "belong" to each
+	// The striped jumps, i.e. the repeating indexes that "belong" to each
 	// execution segment in the sequence.
-	offsets [][]int64
+	jumps [][]int64
 }
 
 // NewExecutionSegmentSequenceWrapper expects a filled-out execution segment
@@ -508,7 +508,7 @@ func NewExecutionSegmentSequenceWrapper(ess ExecutionSegmentSequence) *Execution
 	}
 
 	sequenceLength := len(ess)
-	offsets := make([][]int64, sequenceLength)
+	jumps := make([][]int64, sequenceLength)
 	lcd := ess.LCD()
 
 	// This will contain the normalized numerator values (i.e. what they would have
@@ -524,7 +524,7 @@ func NewExecutionSegmentSequenceWrapper(ess ExecutionSegmentSequence) *Execution
 		normalizedNumerator := ess[i].length.Num().Int64() * (lcd / ess[i].length.Denom().Int64())
 		sortedNormalizedIndexes[i].normNumerator = normalizedNumerator
 		sortedNormalizedIndexes[i].originalIndex = i
-		offsets[i] = make([]int64, 0, normalizedNumerator+1)
+		jumps[i] = make([]int64, 0, normalizedNumerator)
 	}
 
 	sort.SliceStable(sortedNormalizedIndexes, func(i, j int) bool {
@@ -561,28 +561,21 @@ func NewExecutionSegmentSequenceWrapper(ess ExecutionSegmentSequence) *Execution
 	// sorting of the segments from biggest to smallest helps with the fact that
 	// the biggest elements will need to take the most elements, and for them it
 	// will be the hardest to not get sequential elements.
-	prev := make([]int64, sequenceLength)
 	chosenCounts := make([]int64, sequenceLength)
-	saveIndex := func(iteration int64, index int, numerator int64) {
-		offsets[index] = append(offsets[index], iteration-prev[index])
-		prev[index] = iteration
-		if int64(len(offsets[index])) == numerator {
-			offsets[index] = append(offsets[index], offsets[index][0]+lcd-iteration)
-		}
-	}
 	for i := int64(0); i < lcd; i++ {
 		for sortedIndex, chosenCount := range chosenCounts {
 			num := chosenCount * lcd
 			denom := sortedNormalizedIndexes[sortedIndex].normNumerator
 			if i > num/denom || (i == num/denom && num%denom == 0) {
 				chosenCounts[sortedIndex]++
-				saveIndex(i, sortedNormalizedIndexes[sortedIndex].originalIndex, denom)
+				index := sortedNormalizedIndexes[sortedIndex].originalIndex
+				jumps[index] = append(jumps[index], i)
 				break
 			}
 		}
 	}
 
-	return &ExecutionSegmentSequenceWrapper{ExecutionSegmentSequence: ess, lcd: lcd, offsets: offsets}
+	return &ExecutionSegmentSequenceWrapper{ExecutionSegmentSequence: ess, lcd: lcd, jumps: jumps}
 }
 
 // LCD returns the (cached) least common denominator of the sequence - no need
@@ -593,13 +586,23 @@ func (essw *ExecutionSegmentSequenceWrapper) LCD() int64 {
 
 // ScaleInt64 scales the provided value for the given segment.
 func (essw *ExecutionSegmentSequenceWrapper) ScaleInt64(segmentIndex int, value int64) int64 {
-	start := essw.offsets[segmentIndex][0]
-	offsets := essw.offsets[segmentIndex][1:]
-	result := (value / essw.lcd) * int64(len(offsets))
-	for gi, i := 0, start; i < value%essw.lcd; gi, i = gi+1, i+offsets[gi] {
-		result++
+	jumps := essw.jumps[segmentIndex]
+	endValue := (value / essw.lcd) * int64(len(jumps))
+	remaining := value % essw.lcd
+	if jumps[0] <= remaining {
+		i, j := 0, len(jumps)
+		for i < j {
+			h := int(uint(i+j) >> 1) // avoid overflow when computing h
+			// i ≤ h < j
+			if jumps[h] < remaining {
+				i = h + 1 // preserves f(i-1) == false
+			} else {
+				j = h // preserves f(j) == true
+			}
+		}
+		endValue += int64(i)
 	}
-	return result
+	return endValue
 }
 
 // GetStripedOffsets returns the stripped offsets for the given segment
@@ -611,8 +614,24 @@ func (essw *ExecutionSegmentSequenceWrapper) ScaleInt64(segmentIndex int, value 
 // - lcd: the LCD of the lengths of all segments in the sequence. This is also the number of
 //        elements after which the algorithm starts to loop and give the same values
 func (essw *ExecutionSegmentSequenceWrapper) GetStripedOffsets(segmentIndex int) (int64, []int64, int64) {
-	offsets := essw.offsets[segmentIndex]
-	return offsets[0], offsets[1:], essw.lcd
+	jumps := essw.jumps[segmentIndex]
+	offsets := make([]int64, len(jumps))
+	for i := 1; i < len(jumps); i++ {
+		offsets[i-1] = jumps[i] - jumps[i-1]
+	}
+	offsets[len(offsets)-1] = essw.lcd - jumps[len(jumps)-1] + jumps[0]
+	return jumps[0], offsets, essw.lcd
+}
+
+// GetStripedJumps returns the stripped jumps for the given segment
+// the returned values are as follows in order:
+// - jumps: a list of jumps from the beginning value for the segment. This are only the jumps
+//            to from the start to the next start if we chunk the elements we are going to strip
+//            into lcd sized chunks
+// - lcd: the LCD of the lengths of all segments in the sequence. This is also the number of
+//        elements after which the algorithm starts to loop and give the same values
+func (essw *ExecutionSegmentSequenceWrapper) GetStripedJumps(segmentIndex int) ([]int64, int64) {
+	return essw.jumps[segmentIndex], essw.lcd
 }
 
 // GetTuple returns an ExecutionTuple for the specified segment index.
@@ -713,6 +732,11 @@ func (et *ExecutionTuple) ScaleInt64(value int64) int64 {
 // GetStripedOffsets returns the striped offsets for our execution segment.
 func (et *ExecutionTuple) GetStripedOffsets() (int64, []int64, int64) {
 	return et.Sequence.GetStripedOffsets(et.SegmentIndex)
+}
+
+// GetStripedJumps returns the striped jumps for our execution segment.
+func (et *ExecutionTuple) GetStripedJumps() ([]int64, int64) {
+	return et.Sequence.GetStripedJumps(et.SegmentIndex)
 }
 
 // GetNewExecutionTupleFromValue re-segments the sequence, based on the given
