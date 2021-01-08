@@ -112,6 +112,9 @@ func (c Config) Apply(cfg Config) Config {
 	if cfg.SummaryExport.Valid {
 		c.SummaryExport = cfg.SummaryExport
 	}
+	if cfg.LogTLSKey.Valid {
+		c.LogTLSKey = cfg.LogTLSKey
+	}
 	c.Collectors.InfluxDB = c.Collectors.InfluxDB.Apply(cfg.Collectors.InfluxDB)
 	c.Collectors.Cloud = c.Collectors.Cloud.Apply(cfg.Collectors.Cloud)
 	c.Collectors.Kafka = c.Collectors.Kafka.Apply(cfg.Collectors.Kafka)
@@ -171,7 +174,23 @@ func readDiskConfig(fs afero.Fs) (Config, string, error) {
 	}
 	var conf Config
 	err = json.Unmarshal(data, &conf)
+	if err != nil {
+		return Config{}, realConfigFilePath, err
+	}
+	err = ValidateDiskConfigOptions(&conf)
+	if err != nil {
+		return Config{}, realConfigFilePath, err
+	}
 	return conf, realConfigFilePath, err
+}
+
+// ValidateDiskConfigOptions will check for invalid options set in config.json file.
+func ValidateDiskConfigOptions(config *Config) error {
+	if config.Options.LogTLSKey.Valid {
+		return errors.New("use command line argument or environment variable to set LogTlsKey. " +
+			"use of LogTlsKey compromises security and should only be used for debugging")
+	}
+	return nil
 }
 
 // Serializes the configuration to a JSON file and writes it in the supplied

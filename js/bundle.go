@@ -102,8 +102,20 @@ func NewBundle(
 	if err != nil {
 		return nil, err
 	}
-
+	err = ValidateJsScriptOptions(&bundle.Options)
+	if err != nil {
+		return nil, err
+	}
 	return &bundle, nil
+}
+
+// ValidateJsScriptOptions will check for invalid options set in .js file.
+func ValidateJsScriptOptions(options *lib.Options) error {
+	if options.LogTLSKey.Valid {
+		return errors.New("use command line argument or environment variable to set LogTlsKey. " +
+			"use of LogTlsKey compromises security and should only be used for debugging")
+	}
+	return nil
 }
 
 // NewBundleFromArchive creates a new bundle from an lib.Archive.
