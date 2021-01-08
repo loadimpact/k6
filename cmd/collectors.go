@@ -35,6 +35,7 @@ import (
 	"github.com/loadimpact/k6/lib/consts"
 	"github.com/loadimpact/k6/loader"
 	"github.com/loadimpact/k6/stats"
+	"github.com/loadimpact/k6/stats/appinsights"
 	"github.com/loadimpact/k6/stats/cloud"
 	"github.com/loadimpact/k6/stats/csv"
 	"github.com/loadimpact/k6/stats/datadog"
@@ -45,13 +46,14 @@ import (
 )
 
 const (
-	collectorInfluxDB = "influxdb"
-	collectorJSON     = "json"
-	collectorKafka    = "kafka"
-	collectorCloud    = "cloud"
-	collectorStatsD   = "statsd"
-	collectorDatadog  = "datadog"
-	collectorCSV      = "csv"
+	collectorInfluxDB    = "influxdb"
+	collectorJSON        = "json"
+	collectorKafka       = "kafka"
+	collectorCloud       = "cloud"
+	collectorStatsD      = "statsd"
+	collectorDatadog     = "datadog"
+	collectorCSV         = "csv"
+	collectorAppInsights = "appinsights"
 )
 
 func parseCollector(s string) (t, arg string) {
@@ -139,7 +141,20 @@ func getCollector(
 		}
 
 		return csv.New(logger, afero.NewOsFs(), conf.SystemTags.Map(), config)
+	case collectorAppInsights:
+		config := appinsights.NewConfig().Apply(conf.Collectors.AppInsights)
+		if err := envconfig.Process("", &config); err != nil {
+			return nil, err
+		}
+		if arg != "" {
+			cmdConfig, err := appinsights.ParseArg(arg)
+			if err != nil {
+				return nil, err
+			}
+			config = config.Apply(cmdConfig)
+		}
 
+		return appinsights.New(logger, config)
 	default:
 		return nil, errors.Errorf("unknown output type: %s", collectorName)
 	}
