@@ -59,7 +59,12 @@ func (r MiniRunner) MakeArchive() *lib.Archive {
 
 // NewVU returns a new VU with an incremental ID.
 func (r *MiniRunner) NewVU(id int64, out chan<- stats.SampleContainer) (lib.InitializedVU, error) {
-	return &VU{R: r, Out: out, ID: id}, nil
+	return &VU{
+		R:     r,
+		Out:   out,
+		ID:    id,
+		state: &lib.State{Vu: id, Samples: out},
+	}, nil
 }
 
 // Setup calls the supplied mock setup() function, if present.
@@ -128,6 +133,7 @@ type VU struct {
 	Out       chan<- stats.SampleContainer
 	ID        int64
 	Iteration int64
+	state     *lib.State
 }
 
 // ActiveVU holds a VU and its activation parameters
@@ -165,6 +171,11 @@ func (vu *VU) Activate(params *lib.VUActivationParams) lib.ActiveVU {
 	return avu
 }
 
+// GetState returns the VU execution state.
+func (vu *ActiveVU) GetState() *lib.State {
+	return vu.state
+}
+
 // RunOnce runs the mock default function once, incrementing its iteration.
 func (vu *ActiveVU) RunOnce() error {
 	if vu.R.Fn == nil {
@@ -181,13 +192,8 @@ func (vu *ActiveVU) RunOnce() error {
 		<-vu.busy // unlock deactivation again
 	}()
 
-	state := &lib.State{
-		Vu:        vu.ID,
-		Iteration: vu.Iteration,
-	}
-	newctx := lib.WithState(vu.RunContext, state)
-
 	vu.Iteration++
+	newctx := lib.WithState(vu.RunContext, vu.state)
 
 	return vu.R.Fn(newctx, vu.Out)
 }

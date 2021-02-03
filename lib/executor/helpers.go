@@ -29,7 +29,9 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/loadimpact/k6/lib"
+	"github.com/loadimpact/k6/lib/metrics"
 	"github.com/loadimpact/k6/lib/types"
+	"github.com/loadimpact/k6/stats"
 	"github.com/loadimpact/k6/ui/pb"
 )
 
@@ -84,6 +86,7 @@ func getIterationRunner(
 ) func(context.Context, lib.ActiveVU) bool {
 	return func(ctx context.Context, vu lib.ActiveVU) bool {
 		err := vu.RunOnce()
+		state := vu.GetState()
 
 		// TODO: track (non-ramp-down) errors from script iterations as a metric,
 		// and have a default threshold that will abort the script when the error
@@ -91,19 +94,48 @@ func getIterationRunner(
 
 		select {
 		case <-ctx.Done():
-			// Don't log errors or emit iterations metrics from cancelled iterations
+			// TODO: Use enum?
+			// TODO: How to distinguish interruptions from signal (^C)?
+			tags := map[string]string{"cause": "duration"}
+			state.Samples <- stats.Sample{
+				Time:   time.Now(),
+				Metric: metrics.InterruptedIterations,
+				Tags:   stats.IntoSampleTags(&tags),
+				Value:  1,
+			}
 			executionState.AddInterruptedIterations(1)
 			return false
 		default:
 			if err != nil {
-				if s, ok := err.(fmt.Stringer); ok {
-					// TODO better detection for stack traces
-					// TODO don't count this as a full iteration?
-					logger.WithField("source", "stacktrace").Error(s.String())
-				} else {
+				// TODO: Use enum?
+				tags := map[string]string{"cause": "error"}
+
+				// TODO: investigate context cancelled errors
+				switch e := err.(type) {
+				case lib.Exception:
+					if e2, ok := e.Err.(lib.IterationInterruptedError); ok {
+						tags["cause"] = e2.Cause()
+						logger.Error(e.Error())
+					} else {
+						// TODO figure out how to use PanicLevel without panicing .. this might require changing
+						// the logger we use see
+						// https://github.com/sirupsen/logrus/issues/1028
+						// https://github.com/sirupsen/logrus/issues/993
+						logger.WithField("source", "stacktrace").Error(e.Error())
+					}
+				default:
 					logger.Error(err.Error())
 				}
-				// TODO: investigate context cancelled errors
+
+				stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+					Time:   time.Now(),
+					Metric: metrics.InterruptedIterations,
+					Tags:   stats.IntoSampleTags(&tags),
+					Value:  1,
+				})
+				executionState.AddInterruptedIterations(1)
+
+				return false
 			}
 
 			// TODO: move emission of end-of-iteration metrics here?
