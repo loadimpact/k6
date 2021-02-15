@@ -3,6 +3,7 @@ module github.com/loadimpact/k6
 go 1.14
 
 require (
+	github.com/Azure/azure-event-hubs-go/v3 v3.3.1
 	github.com/Azure/go-ntlmssp v0.0.0-20180810175552-4a21cbd618b4
 	github.com/DataDog/datadog-go v0.0.0-20180330214955-e67964b4021a
 	github.com/GeertJohan/go.rice v0.0.0-20170420135705-c02ca9a983da
@@ -47,13 +48,13 @@ require (
 	github.com/mattn/go-colorable v0.0.9
 	github.com/mattn/go-isatty v0.0.4
 	github.com/mccutchen/go-httpbin v1.1.2-0.20190116014521-c5cb2f4802fa
-	github.com/mitchellh/mapstructure v0.0.0-20180220230111-00c29f56e238
+	github.com/mitchellh/mapstructure v1.3.3
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
 	github.com/onsi/ginkgo v1.14.0 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20150712133111-4e1c5567d7c2
 	github.com/pierrec/lz4 v1.0.2-0.20171218195038-2fcda4cb7018 // indirect
 	github.com/pierrec/xxHash v0.1.1 // indirect
-	github.com/pkg/errors v0.8.0
+	github.com/pkg/errors v0.9.1
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/rcrowley/go-metrics v0.0.0-20180503174638-e2704e165165 // indirect
 	github.com/serenize/snaker v0.0.0-20171204205717-a683aaf2d516
@@ -61,7 +62,7 @@ require (
 	github.com/spf13/afero v1.1.1
 	github.com/spf13/cobra v0.0.4-0.20180629152535-a114f312e075
 	github.com/spf13/pflag v1.0.1
-	github.com/stretchr/testify v1.2.2
+	github.com/stretchr/testify v1.6.1
 	github.com/tidwall/gjson v1.6.1
 	github.com/tidwall/pretty v1.0.2
 	github.com/ugorji/go v1.1.7 // indirect
