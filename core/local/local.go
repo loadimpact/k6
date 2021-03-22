@@ -31,6 +31,7 @@ import (
 
 	"go.k6.io/k6/errext"
 	"go.k6.io/k6/lib"
+	"go.k6.io/k6/lib/executor"
 	"go.k6.io/k6/stats"
 	"go.k6.io/k6/ui/pb"
 )
@@ -381,8 +382,14 @@ func (e *ExecutionScheduler) Run(globalCtx, runCtx context.Context, engineOut ch
 	// Start all executors at their particular startTime in a separate goroutine...
 	logger.Debug("Start all executors...")
 	e.state.SetExecutionStatus(lib.ExecutionStatusRunning)
+
+	// We are using this context to allow lib.Executor implementations to cancel
+	// this context effectively stopping all executions.
+	//
+	// This is for addressing abortTest()
+	execCtx := executor.Context(runSubCtx)
 	for _, exec := range e.executors {
-		go e.runExecutor(runSubCtx, runResults, engineOut, exec)
+		go e.runExecutor(execCtx, runResults, engineOut, exec)
 	}
 
 	// Wait for all executors to finish
@@ -409,7 +416,10 @@ func (e *ExecutionScheduler) Run(globalCtx, runCtx context.Context, engineOut ch
 			return err
 		}
 	}
-
+	if err := executor.CancelReason(execCtx); err != nil {
+		// The execution was interupted
+		return err
+	}
 	return firstErr
 }
 
