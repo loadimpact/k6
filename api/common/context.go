@@ -26,14 +26,19 @@ import (
 	"github.com/loadimpact/k6/core"
 )
 
-type ContextKey int
+type contextKey int
 
-const ctxKeyEngine = ContextKey(1)
+const (
+	ctxKeyEngine contextKey = 1 << iota
+)
 
+// WithEngine returns a new context, derived from the given one and 
+// carrying the given Engine within it.
 func WithEngine(ctx context.Context, engine *core.Engine) context.Context {
 	return context.WithValue(ctx, ctxKeyEngine, engine)
 }
 
+// GetEngine returns the wrapped core.Engine instance.
 func GetEngine(ctx context.Context) *core.Engine {
 	return ctx.Value(ctxKeyEngine).(*core.Engine)
 }
