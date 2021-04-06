@@ -33,6 +33,7 @@ import (
 
 	"github.com/loadimpact/k6/js/common"
 	"github.com/loadimpact/k6/lib"
+	liberrors "github.com/loadimpact/k6/lib/errors"
 	"github.com/loadimpact/k6/lib/metrics"
 	"github.com/loadimpact/k6/stats"
 )
@@ -381,5 +382,34 @@ func TestCheck(t *testing.T) {
 				"b":     "2",
 			}, sample.Tags.CloneTags())
 		}
+	})
+}
+func TestAbortTest(t *testing.T) {
+	rt := goja.New()
+	baseCtx := common.WithRuntime(context.Background(), rt)
+
+	ctx := new(context.Context)
+	*ctx = baseCtx
+	err := rt.Set("k6", common.Bind(rt, New(), ctx))
+	require.Nil(t, err)
+	prove := func(t *testing.T, script, reason string) {
+		_, err := rt.RunString(script)
+		require.NotNil(t, err)
+		x, ok := err.(*goja.InterruptedError)
+		require.True(t, ok)
+		v, ok := x.Value().(*liberrors.InterruptError)
+		require.True(t, ok)
+		require.Equal(t, v.Reason, reason)
+	}
+	t.Run("Without state", func(t *testing.T) {
+		prove(t, "k6.abortTest()", liberrors.AbortTest)
+	})
+	t.Run("With state and default reason", func(t *testing.T) {
+		*ctx = lib.WithState(baseCtx, &lib.State{})
+		prove(t, "k6.abortTest()", liberrors.AbortTest)
+	})
+	t.Run("With state and custom reason", func(t *testing.T) {
+		*ctx = lib.WithState(baseCtx, &lib.State{})
+		prove(t, `k6.abortTest("mayday")`, "mayday")
 	})
 }

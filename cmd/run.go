@@ -47,6 +47,7 @@ import (
 	"github.com/loadimpact/k6/js"
 	"github.com/loadimpact/k6/lib"
 	"github.com/loadimpact/k6/lib/consts"
+	liberrors "github.com/loadimpact/k6/lib/errors"
 	"github.com/loadimpact/k6/loader"
 	"github.com/loadimpact/k6/ui/pb"
 )
@@ -63,11 +64,13 @@ const (
 	invalidConfigErrorCode       = 104
 	externalAbortErrorCode       = 105
 	cannotStartRESTAPIErrorCode  = 106
+	abortedByScriptErrorCode     = 107
 )
 
 // TODO: fix this, global variables are not very testable...
 //nolint:gochecknoglobals
 var runType = os.Getenv("K6_TYPE")
+var errScriptInterrupted = errors.New("script execution was aborted")
 
 //nolint:funlen,gocognit,gocyclo
 func getRunCmd(ctx context.Context, logger *logrus.Logger) *cobra.Command {
@@ -276,8 +279,13 @@ a commandline interface for interacting with it.`,
 
 			// Start the test run
 			initBar.Modify(pb.WithConstProgress(0, "Starting test..."))
+			var interrupt error
 			if err := engineRun(); err != nil {
-				return getExitCodeFromEngine(err)
+				if !conf.Linger.Bool || !liberrors.IsInterruptError(err) {
+					return getExitCodeFromEngine(err)
+				}
+				// Engine was interrupted but we are in --linger mode
+				interrupt = err
 			}
 			runCancel()
 			logger.Debug("Engine run terminated cleanly")
@@ -321,6 +329,10 @@ a commandline interface for interacting with it.`,
 			logger.Debug("Waiting for engine processes to finish...")
 			engineWait()
 			logger.Debug("Everything has finished, exiting k6!")
+			if interrupt != nil {
+				e := interrupt.(*liberrors.InterruptError)
+				return ExitCode{error: errScriptInterrupted, Code: abortedByScriptErrorCode, Hint: e.Reason}
+			}
 			if engine.IsTainted() {
 				return ExitCode{error: errors.New("some thresholds have failed"), Code: thresholdHaveFailedErrorCode}
 			}
@@ -345,6 +357,8 @@ func getExitCodeFromEngine(err error) ExitCode {
 		default:
 			return ExitCode{error: err, Code: genericTimeoutErrorCode}
 		}
+	case *liberrors.InterruptError:
+		return ExitCode{error: errScriptInterrupted, Code: abortedByScriptErrorCode, Hint: e.Reason}
 	default:
 		//nolint:golint
 		return ExitCode{error: errors.New("Engine error"), Code: genericEngineErrorCode, Hint: err.Error()}

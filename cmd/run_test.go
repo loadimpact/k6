@@ -22,6 +22,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -31,7 +32,10 @@ import (
 	"testing"
 
 	"github.com/loadimpact/k6/lib/fsext"
+	"github.com/loadimpact/k6/lib/testutils"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,4 +127,48 @@ func TestHandleSummaryResultError(t *testing.T) {
 	files := getFiles(t, fs)
 	assertEqual(t, "file summary 1", files[filePath1])
 	assertEqual(t, "file summary 2", files[filePath2])
+}
+
+func TestAbortTest(t *testing.T) {
+	t.Run("Check status code is 107", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		logger := testutils.NewLogger(t)
+
+		cmd := getRunCmd(ctx, logger)
+		cmd.Flags().AddFlag(&pflag.Flag{
+			Name: "address",
+		})
+		a, err := filepath.Abs("testdata/abort.js")
+		require.NoError(t, err)
+		cmd.SetArgs([]string{a})
+		err = cmd.Execute()
+		e, ok := err.(ExitCode)
+		require.True(t, ok)
+		require.Equal(t, abortedByScriptErrorCode, e.Code, "Status code must be 107")
+		require.EqualError(t, e.error, errScriptInterrupted.Error())
+	})
+
+	t.Run("Check that teardown is called", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		msg := "Calling teardown function after abortTest()"
+		var buf bytes.Buffer
+		logger := logrus.New()
+		logger.SetOutput(&buf)
+
+		cmd := getRunCmd(ctx, logger)
+		cmd.Flags().AddFlag(&pflag.Flag{
+			Name: "address",
+		})
+		a, err := filepath.Abs("testdata/teardown.js")
+		require.NoError(t, err)
+		cmd.SetArgs([]string{a})
+		err = cmd.Execute()
+		e, ok := err.(ExitCode)
+		require.True(t, ok)
+		require.Equal(t, abortedByScriptErrorCode, e.Code, "Status code must be 107")
+		require.EqualError(t, e.error, errScriptInterrupted.Error())
+		require.Contains(t, buf.String(), msg)
+	})
 }
