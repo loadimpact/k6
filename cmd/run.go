@@ -183,6 +183,7 @@ a commandline interface for interacting with it.`,
 			initBar := execScheduler.GetInitProgressBar()
 			progressBarWG := &sync.WaitGroup{}
 			progressBarWG.Add(1)
+
 			go func() {
 				pbs := []*pb.ProgressBar{execScheduler.GetInitProgressBar()}
 				for _, s := range execScheduler.GetExecutors() {
@@ -251,6 +252,29 @@ a commandline interface for interacting with it.`,
 				globalCancel() // not that it matters, given the following command...
 				os.Exit(externalAbortErrorCode)
 			}()
+			// start reading user input
+			if !runtimeOptions.NoSummary.Bool {
+				line := make(chan string)
+				go func() {
+					var s string
+					for {
+						_, scanErr := fmt.Scan(&s)
+						if scanErr != nil {
+							logger.WithError(scanErr).Error("failed to scan user input")
+						}
+						line <- s
+					}
+				}()
+
+				go func() {
+					for {
+						ll := <-line
+						if ll == "R" {
+							printSummaryResults(globalCtx, initRunner, engine, executionState, logger, stdout, stderr)
+						}
+					}
+				}()
+			}
 
 			// Initialize the engine
 			initBar.Modify(pb.WithConstProgress(0, "Init VUs..."))
@@ -295,17 +319,7 @@ a commandline interface for interacting with it.`,
 
 			// Handle the end-of-test summary.
 			if !runtimeOptions.NoSummary.Bool {
-				summaryResult, err := initRunner.HandleSummary(globalCtx, &lib.Summary{
-					Metrics:         engine.Metrics,
-					RootGroup:       engine.ExecutionScheduler.GetRunner().GetDefaultGroup(),
-					TestRunDuration: executionState.GetCurrentTestRunDuration(),
-				})
-				if err == nil {
-					err = handleSummaryResult(afero.NewOsFs(), stdout, stderr, summaryResult)
-				}
-				if err != nil {
-					logger.WithError(err).Error("failed to handle the end-of-test summary")
-				}
+				printSummaryResults(globalCtx, initRunner, engine, executionState, logger, stdout, stderr)
 			}
 
 			if conf.Linger.Bool {
@@ -459,7 +473,7 @@ func handleSummaryResult(fs afero.Fs, stdOut, stdErr io.Writer, result map[strin
 		case "stderr":
 			return stdErr, nil
 		default:
-			return fs.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+			return fs.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 		}
 	}
 
@@ -470,6 +484,32 @@ func handleSummaryResult(fs afero.Fs, stdOut, stdErr io.Writer, result map[strin
 			errs = append(errs, fmt.Errorf("error saving summary to '%s' after %d bytes: %w", path, n, err))
 		}
 	}
-
 	return consolidateErrorMessage(errs, "Could not save some summary information:")
+}
+
+func printSummaryResults(
+	globalCtx context.Context,
+	runner lib.Runner,
+	engine *core.Engine,
+	executionState *lib.ExecutionState,
+	log *logrus.Logger,
+	stdOut, stdErr io.Writer,
+) {
+	engine.MetricsLock.Lock()
+	summaryResult, err := runner.HandleSummary(globalCtx, &lib.Summary{
+		Metrics:         engine.Metrics,
+		RootGroup:       engine.ExecutionScheduler.GetRunner().GetDefaultGroup(),
+		TestRunDuration: executionState.GetCurrentTestRunDuration(),
+	})
+	engine.MetricsLock.Unlock()
+
+	if err == nil {
+		hErr := handleSummaryResult(afero.NewOsFs(), stdOut, stdErr, summaryResult)
+		if hErr != nil {
+			log.WithError(hErr).Error("failed to handle summary result")
+		}
+	}
+	if err != nil {
+		log.WithError(err).Error("failed to handle the end-of-test summary")
+	}
 }
