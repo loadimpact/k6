@@ -27,7 +27,6 @@ import (
 	"sort"
 	"time"
 
-	"go.k6.io/k6/lib/metrics"
 	"go.k6.io/k6/lib/netext/httpext"
 	"go.k6.io/k6/stats"
 )
@@ -109,23 +108,22 @@ type SampleDataMap struct {
 
 // NewSampleFromTrail just creates a ready-to-send Sample instance
 // directly from a httpext.Trail.
-func NewSampleFromTrail(trail *httpext.Trail) *Sample {
+func (out *Output) NewSampleFromTrail(trail *httpext.Trail) *Sample {
 	length := 8
 	if trail.Failed.Valid {
 		length++
 	}
-
 	values := make(map[string]float64, length)
-	values[metrics.HTTPReqs.Name] = 1
-	values[metrics.HTTPReqDuration.Name] = stats.D(trail.Duration)
-	values[metrics.HTTPReqBlocked.Name] = stats.D(trail.Blocked)
-	values[metrics.HTTPReqConnecting.Name] = stats.D(trail.Connecting)
-	values[metrics.HTTPReqTLSHandshaking.Name] = stats.D(trail.TLSHandshaking)
-	values[metrics.HTTPReqSending.Name] = stats.D(trail.Sending)
-	values[metrics.HTTPReqWaiting.Name] = stats.D(trail.Waiting)
-	values[metrics.HTTPReqReceiving.Name] = stats.D(trail.Receiving)
+	values[out.metrics.HTTPReqs.Name] = 1
+	values[out.metrics.HTTPReqDuration.Name] = stats.D(trail.Duration)
+	values[out.metrics.HTTPReqBlocked.Name] = stats.D(trail.Blocked)
+	values[out.metrics.HTTPReqConnecting.Name] = stats.D(trail.Connecting)
+	values[out.metrics.HTTPReqTLSHandshaking.Name] = stats.D(trail.TLSHandshaking)
+	values[out.metrics.HTTPReqSending.Name] = stats.D(trail.Sending)
+	values[out.metrics.HTTPReqWaiting.Name] = stats.D(trail.Waiting)
+	values[out.metrics.HTTPReqReceiving.Name] = stats.D(trail.Receiving)
 	if trail.Failed.Valid { // this is done so the adding of 1 map element doesn't reexpand the map as this is a hotpath
-		values[metrics.HTTPReqFailed.Name] = stats.B(trail.Failed.Bool)
+		values[out.metrics.HTTPReqFailed.Name] = stats.B(trail.Failed.Bool)
 	}
 	return &Sample{
 		Type:   DataTypeMap,

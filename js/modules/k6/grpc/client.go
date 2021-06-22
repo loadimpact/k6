@@ -493,7 +493,7 @@ func (c *Client) HandleRPC(ctx context.Context, stat grpcstats.RPCStats) {
 		stats.PushIfNotDone(ctx, state.Samples, stats.ConnectedSamples{
 			Samples: []stats.Sample{
 				{
-					Metric: metrics.GRPCReqDuration,
+					Metric: metrics.GetBuiltInMetrics(ctx).GRPCReqDuration,
 					Tags:   sampleTags,
 					Value:  stats.D(s.EndTime.Sub(s.BeginTime)),
 					Time:   s.EndTime,

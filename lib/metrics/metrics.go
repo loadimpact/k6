@@ -21,48 +21,99 @@
 package metrics
 
 import (
+	"context"
+
 	"go.k6.io/k6/stats"
 )
 
-// TODO: refactor this, using non thread-safe global variables seems like a bad idea for various reasons...
-
-//nolint:gochecknoglobals
-var (
-	// Engine-emitted.
-	VUs               = stats.New("vus", stats.Gauge)
-	VUsMax            = stats.New("vus_max", stats.Gauge)
-	Iterations        = stats.New("iterations", stats.Counter)
-	IterationDuration = stats.New("iteration_duration", stats.Trend, stats.Time)
-	DroppedIterations = stats.New("dropped_iterations", stats.Counter)
-	Errors            = stats.New("errors", stats.Counter)
+type BuiltInMetrics struct {
+	VUs               *stats.Metric
+	VUsMax            *stats.Metric
+	Iterations        *stats.Metric
+	IterationDuration *stats.Metric
+	DroppedIterations *stats.Metric
+	Errors            *stats.Metric
 
 	// Runner-emitted.
-	Checks        = stats.New("checks", stats.Rate)
-	GroupDuration = stats.New("group_duration", stats.Trend, stats.Time)
+	Checks        *stats.Metric
+	GroupDuration *stats.Metric
 
 	// HTTP-related.
-	HTTPReqs              = stats.New("http_reqs", stats.Counter)
-	HTTPReqFailed         = stats.New("http_req_failed", stats.Rate)
-	HTTPReqDuration       = stats.New("http_req_duration", stats.Trend, stats.Time)
-	HTTPReqBlocked        = stats.New("http_req_blocked", stats.Trend, stats.Time)
-	HTTPReqConnecting     = stats.New("http_req_connecting", stats.Trend, stats.Time)
-	HTTPReqTLSHandshaking = stats.New("http_req_tls_handshaking", stats.Trend, stats.Time)
-	HTTPReqSending        = stats.New("http_req_sending", stats.Trend, stats.Time)
-	HTTPReqWaiting        = stats.New("http_req_waiting", stats.Trend, stats.Time)
-	HTTPReqReceiving      = stats.New("http_req_receiving", stats.Trend, stats.Time)
+	HTTPReqs              *stats.Metric
+	HTTPReqFailed         *stats.Metric
+	HTTPReqDuration       *stats.Metric
+	HTTPReqBlocked        *stats.Metric
+	HTTPReqConnecting     *stats.Metric
+	HTTPReqTLSHandshaking *stats.Metric
+	HTTPReqSending        *stats.Metric
+	HTTPReqWaiting        *stats.Metric
+	HTTPReqReceiving      *stats.Metric
 
 	// Websocket-related
-	WSSessions         = stats.New("ws_sessions", stats.Counter)
-	WSMessagesSent     = stats.New("ws_msgs_sent", stats.Counter)
-	WSMessagesReceived = stats.New("ws_msgs_received", stats.Counter)
-	WSPing             = stats.New("ws_ping", stats.Trend, stats.Time)
-	WSSessionDuration  = stats.New("ws_session_duration", stats.Trend, stats.Time)
-	WSConnecting       = stats.New("ws_connecting", stats.Trend, stats.Time)
+	WSSessions         *stats.Metric
+	WSMessagesSent     *stats.Metric
+	WSMessagesReceived *stats.Metric
+	WSPing             *stats.Metric
+	WSSessionDuration  *stats.Metric
+	WSConnecting       *stats.Metric
 
 	// gRPC-related
-	GRPCReqDuration = stats.New("grpc_req_duration", stats.Trend, stats.Time)
+	GRPCReqDuration *stats.Metric
 
 	// Network-related; used for future protocols as well.
-	DataSent     = stats.New("data_sent", stats.Counter, stats.Data)
-	DataReceived = stats.New("data_received", stats.Counter, stats.Data)
+	DataSent     *stats.Metric
+	DataReceived *stats.Metric
+}
+
+func RegisterBuiltinMetrics(registry *stats.Registry) *BuiltInMetrics {
+	return &BuiltInMetrics{
+		VUs:               registry.MustNewMetric("vus", stats.Gauge),
+		VUsMax:            registry.MustNewMetric("vus_max", stats.Gauge),
+		Iterations:        registry.MustNewMetric("iterations", stats.Counter),
+		IterationDuration: registry.MustNewMetric("iteration_duration", stats.Trend, stats.Time),
+		DroppedIterations: registry.MustNewMetric("dropped_iterations", stats.Counter),
+		Errors:            registry.MustNewMetric("errors", stats.Counter),
+
+		Checks:        registry.MustNewMetric("checks", stats.Rate),
+		GroupDuration: registry.MustNewMetric("group_duration", stats.Trend, stats.Time),
+
+		HTTPReqs:              registry.MustNewMetric("http_reqs", stats.Counter),
+		HTTPReqFailed:         registry.MustNewMetric("http_req_failed", stats.Rate),
+		HTTPReqDuration:       registry.MustNewMetric("http_req_duration", stats.Trend, stats.Time),
+		HTTPReqBlocked:        registry.MustNewMetric("http_req_blocked", stats.Trend, stats.Time),
+		HTTPReqConnecting:     registry.MustNewMetric("http_req_connecting", stats.Trend, stats.Time),
+		HTTPReqTLSHandshaking: registry.MustNewMetric("http_req_tls_handshaking", stats.Trend, stats.Time),
+		HTTPReqSending:        registry.MustNewMetric("http_req_sending", stats.Trend, stats.Time),
+		HTTPReqWaiting:        registry.MustNewMetric("http_req_waiting", stats.Trend, stats.Time),
+		HTTPReqReceiving:      registry.MustNewMetric("http_req_receiving", stats.Trend, stats.Time),
+
+		WSSessions:         registry.MustNewMetric("ws_sessions", stats.Counter),
+		WSMessagesSent:     registry.MustNewMetric("ws_msgs_sent", stats.Counter),
+		WSMessagesReceived: registry.MustNewMetric("ws_msgs_received", stats.Counter),
+		WSPing:             registry.MustNewMetric("ws_ping", stats.Trend, stats.Time),
+		WSSessionDuration:  registry.MustNewMetric("ws_session_duration", stats.Trend, stats.Time),
+		WSConnecting:       registry.MustNewMetric("ws_connecting", stats.Trend, stats.Time),
+
+		GRPCReqDuration: registry.MustNewMetric("grpc_req_duration", stats.Trend, stats.Time),
+
+		DataSent:     registry.MustNewMetric("data_sent", stats.Counter, stats.Data),
+		DataReceived: registry.MustNewMetric("data_received", stats.Counter, stats.Data),
+	}
+}
+
+func WithBuiltinMetrics(ctx context.Context, b *BuiltInMetrics) context.Context {
+	return context.WithValue(ctx, builtinMetricsKey, b)
+}
+
+func GetBuiltInMetrics(ctx context.Context) *BuiltInMetrics {
+	if v := ctx.Value(builtinMetricsKey); v != nil {
+		return v.(*BuiltInMetrics)
+	}
+	return nil
+}
+
+type contextKey uint64
+
+const (
+	builtinMetricsKey contextKey = iota
 )

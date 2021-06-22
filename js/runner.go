@@ -48,6 +48,7 @@ import (
 	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/lib"
 	"go.k6.io/k6/lib/consts"
+	"go.k6.io/k6/lib/metrics"
 	"go.k6.io/k6/lib/netext"
 	"go.k6.io/k6/lib/types"
 	"go.k6.io/k6/loader"
@@ -756,8 +757,50 @@ func (u *VU) runFn(
 	if u.Runner.Bundle.Options.NoVUConnectionReuse.Bool {
 		u.Transport.CloseIdleConnections()
 	}
+	// TODO move this to a function or something
+	builtinMetrics := metrics.GetBuiltInMetrics(ctx)
+	bytesWritten, bytesRead := u.Dialer.GetBytes()
+	tags := stats.NewSampleTags(u.state.Tags)
+	samples := []stats.Sample{
+		{
+			Time:   endTime,
+			Metric: builtinMetrics.DataSent,
+			Value:  float64(bytesWritten),
+			Tags:   tags,
+		},
+		{
+			Time:   endTime,
+			Metric: builtinMetrics.DataReceived,
+			Value:  float64(bytesRead),
+			Tags:   tags,
+		},
+	}
+	if isFullIteration {
+		samples = append(samples, stats.Sample{
+			Time:   endTime,
+			Metric: builtinMetrics.IterationDuration,
+			Value:  stats.D(endTime.Sub(startTime)),
+			Tags:   tags,
+		})
+		if isDefault {
+			samples = append(samples, stats.Sample{
+				Time:   endTime,
+				Metric: builtinMetrics.Iterations,
+				Value:  1,
+				Tags:   tags,
+			})
+		}
+	}
 
-	u.state.Samples <- u.Dialer.GetTrail(startTime, endTime, isFullIteration, isDefault, stats.NewSampleTags(u.state.Tags))
+	u.state.Samples <- &netext.NetTrail{
+		BytesRead:     bytesRead,
+		BytesWritten:  bytesWritten,
+		FullIteration: isFullIteration,
+		StartTime:     startTime,
+		EndTime:       endTime,
+		Tags:          tags,
+		Samples:       samples,
+	}
 
 	return v, isFullIteration, endTime.Sub(startTime), err
 }

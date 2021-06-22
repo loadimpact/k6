@@ -31,6 +31,7 @@ import (
 
 	"go.k6.io/k6/js"
 	"go.k6.io/k6/lib"
+	"go.k6.io/k6/lib/metrics"
 	"go.k6.io/k6/lib/testutils"
 	"go.k6.io/k6/lib/testutils/httpmultibin"
 	"go.k6.io/k6/lib/types"
@@ -133,13 +134,14 @@ func TestSetupDataMarshalling(t *testing.T) {
 
 	samples := make(chan<- stats.SampleContainer, 100)
 
-	if !assert.NoError(t, runner.Setup(context.Background(), samples)) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = metrics.WithBuiltinMetrics(ctx, metrics.RegisterBuiltinMetrics(stats.NewRegistry(samples)))
+	defer cancel()
+	if !assert.NoError(t, runner.Setup(ctx, samples)) {
 		return
 	}
 	initVU, err := runner.NewVU(1, 1, samples)
 	if assert.NoError(t, err) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		vu := initVU.Activate(&lib.VUActivationParams{RunContext: ctx})
 		err := vu.RunOnce()
 		assert.NoError(t, err)

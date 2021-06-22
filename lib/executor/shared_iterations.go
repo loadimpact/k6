@@ -225,7 +225,7 @@ func (si SharedIterations) Run(parentCtx context.Context, out chan<- stats.Sampl
 		activeVUs.Wait()
 		if attemptedIters < totalIters {
 			stats.PushIfNotDone(parentCtx, out, stats.Sample{
-				Value: float64(totalIters - attemptedIters), Metric: metrics.DroppedIterations,
+				Value: float64(totalIters - attemptedIters), Metric: metrics.GetBuiltInMetrics(parentCtx).DroppedIterations,
 				Tags: si.getMetricTags(nil), Time: time.Now(),
 			})
 		}

@@ -212,6 +212,7 @@ func (pvi PerVUIterations) Run(parentCtx context.Context, out chan<- stats.Sampl
 		activeVUs.Done()
 	}
 
+	droppedItearationMetric := metrics.GetBuiltInMetrics(parentCtx).DroppedIterations
 	handleVU := func(initVU lib.InitializedVU) {
 		defer handleVUsWG.Done()
 		ctx, cancel := context.WithCancel(maxDurationCtx)
@@ -226,7 +227,7 @@ func (pvi PerVUIterations) Run(parentCtx context.Context, out chan<- stats.Sampl
 			select {
 			case <-regDurationDone:
 				stats.PushIfNotDone(parentCtx, out, stats.Sample{
-					Value: float64(iterations - i), Metric: metrics.DroppedIterations,
+					Value: float64(iterations - i), Metric: droppedItearationMetric,
 					Tags: pvi.getMetricTags(&vuID), Time: time.Now(),
 				})
 				return // don't make more iterations

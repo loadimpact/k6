@@ -62,6 +62,8 @@ type Output struct {
 	bufferHTTPTrails []*httpext.Trail
 	bufferSamples    []*Sample
 
+	metrics *metrics.BuiltInMetrics
+
 	logger logrus.FieldLogger
 	opts   lib.Options
 
@@ -88,6 +90,7 @@ var _ interface {
 	output.WithRunStatusUpdates
 	output.WithThresholds
 	output.WithTestRunStop
+	output.WithBuiltinMetrics
 } = &Output{}
 
 // New creates a new cloud output.
@@ -329,6 +332,11 @@ func (out *Output) SetTestRunStopCallback(stopFunc func(error)) {
 	out.engineStopFunc = stopFunc
 }
 
+// SetBuiltinMetrics receives the function that stops the engine on error
+func (out *Output) SetBuiltinMetrics(builtInMetrics *metrics.BuiltInMetrics) {
+	out.metrics = builtInMetrics
+}
+
 func useCloudTags(source *httpext.Trail) *httpext.Trail {
 	name, nameExist := source.Tags.Get("name")
 	url, urlExist := source.Tags.Get("url")
@@ -372,18 +380,18 @@ func (out *Output) AddMetricSamples(sampleContainers []stats.SampleContainer) {
 			if out.config.AggregationPeriod.Duration > 0 {
 				newHTTPTrails = append(newHTTPTrails, sc)
 			} else {
-				newSamples = append(newSamples, NewSampleFromTrail(sc))
+				newSamples = append(newSamples, out.NewSampleFromTrail(sc))
 			}
 		case *netext.NetTrail:
 			// TODO: aggregate?
 			values := map[string]float64{
-				metrics.DataSent.Name:     float64(sc.BytesWritten),
-				metrics.DataReceived.Name: float64(sc.BytesRead),
+				out.metrics.DataSent.Name:     float64(sc.BytesWritten),
+				out.metrics.DataReceived.Name: float64(sc.BytesRead),
 			}
 
 			if sc.FullIteration {
-				values[metrics.IterationDuration.Name] = stats.D(sc.EndTime.Sub(sc.StartTime))
-				values[metrics.Iterations.Name] = 1
+				values[out.metrics.IterationDuration.Name] = stats.D(sc.EndTime.Sub(sc.StartTime))
+				values[out.metrics.Iterations.Name] = 1
 			}
 
 			newSamples = append(newSamples, &Sample{
@@ -486,7 +494,7 @@ func (out *Output) aggregateHTTPTrails(waitPeriod time.Duration) {
 				trailCount := int64(len(httpTrails))
 				if trailCount < out.config.AggregationMinSamples.Int64 {
 					for _, trail := range httpTrails {
-						newSamples = append(newSamples, NewSampleFromTrail(trail))
+						newSamples = append(newSamples, out.NewSampleFromTrail(trail))
 					}
 					continue
 				}
@@ -527,7 +535,7 @@ func (out *Output) aggregateHTTPTrails(waitPeriod time.Duration) {
 							trail.Duration < minReqDur ||
 							trail.Duration > maxReqDur {
 							// Seems like an outlier, add it as a standalone metric
-							newSamples = append(newSamples, NewSampleFromTrail(trail))
+							newSamples = append(newSamples, out.NewSampleFromTrail(trail))
 						} else {
 							// Aggregate the trail
 							aggrData.Add(trail)
@@ -569,13 +577,13 @@ func (out *Output) flushHTTPTrails() {
 
 	newSamples := []*Sample{}
 	for _, trail := range out.bufferHTTPTrails {
-		newSamples = append(newSamples, NewSampleFromTrail(trail))
+		newSamples = append(newSamples, out.NewSampleFromTrail(trail))
 	}
 	for _, bucket := range out.aggrBuckets {
 		for _, subBucket := range bucket {
 			for _, trails := range subBucket {
 				for _, trail := range trails {
-					newSamples = append(newSamples, NewSampleFromTrail(trail))
+					newSamples = append(newSamples, out.NewSampleFromTrail(trail))
 				}
 			}
 		}

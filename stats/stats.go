@@ -334,6 +334,10 @@ type Sample struct {
 	Value  float64
 }
 
+func (s Sample) Push(ctx context.Context) {
+	PushIfNotDone(ctx, s.Metric.r.sink, s)
+}
+
 // SampleContainer is a simple abstraction that allows sample
 // producers to attach extra information to samples they return
 type SampleContainer interface {
@@ -402,11 +406,15 @@ func (s Sample) GetTime() time.Time {
 }
 
 // Ensure that interfaces are implemented correctly
-var _ SampleContainer = Sample{}
-var _ SampleContainer = Samples{}
+var (
+	_ SampleContainer = Sample{}
+	_ SampleContainer = Samples{}
+)
 
-var _ ConnectedSampleContainer = Sample{}
-var _ ConnectedSampleContainer = ConnectedSamples{}
+var (
+	_ ConnectedSampleContainer = Sample{}
+	_ ConnectedSampleContainer = ConnectedSamples{}
+)
 
 // GetBufferedSamples will read all present (i.e. buffered or currently being pushed)
 // values in the input channel and return them as a slice.
@@ -427,6 +435,8 @@ func GetBufferedSamples(input <-chan SampleContainer) (result []SampleContainer)
 // PushIfNotDone first checks if the supplied context is done and doesn't push
 // the sample container if it is.
 func PushIfNotDone(ctx context.Context, output chan<- SampleContainer, sample SampleContainer) bool {
+	// TODO this should use sample's Metric to push in it's output
+	// TODO or be moved on the registry - still lets metrics from one registry be pushed on another.
 	if ctx.Err() != nil {
 		return false
 	}
@@ -444,6 +454,7 @@ type Metric struct {
 	Submetrics []*Submetric `json:"submetrics"`
 	Sub        Submetric    `json:"sub,omitempty"`
 	Sink       Sink         `json:"-"`
+	r          *Registry    // TODO probably better to no be done like that
 }
 
 func New(name string, typ MetricType, t ...ValueType) *Metric {

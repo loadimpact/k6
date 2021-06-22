@@ -331,6 +331,7 @@ func (car ConstantArrivalRate) Run(parentCtx context.Context, out chan<- stats.S
 				int64(time.Duration(car.config.TimeUnit.Duration)),
 			)).Duration)
 
+	droppedIterationMetric := metrics.GetBuiltInMetrics(parentCtx).DroppedIterations
 	shownWarning := false
 	metricTags := car.getMetricTags(nil)
 	for li, gi := 0, start; ; li, gi = li+1, gi+offsets[li%len(offsets)] {
@@ -345,10 +346,10 @@ func (car ConstantArrivalRate) Run(parentCtx context.Context, out chan<- stats.S
 			// Since there aren't any free VUs available, consider this iteration
 			// dropped - we aren't going to try to recover it, but
 
-			stats.PushIfNotDone(parentCtx, out, stats.Sample{
-				Value: 1, Metric: metrics.DroppedIterations,
+			stats.Sample{
+				Value: 1, Metric: droppedIterationMetric,
 				Tags: metricTags, Time: time.Now(),
-			})
+			}.Push(parentCtx)
 
 			// We'll try to start allocating another VU in the background,
 			// non-blockingly, if we have remainingUnplannedVUs...

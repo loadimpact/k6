@@ -454,6 +454,7 @@ func (varr RampingArrivalRate) Run(parentCtx context.Context, out chan<- stats.S
 	shownWarning := false
 	metricTags := varr.getMetricTags(nil)
 	go varr.config.cal(varr.et, ch)
+	droppedIterationMetric := metrics.GetBuiltInMetrics(parentCtx).DroppedIterations
 	for nextTime := range ch {
 		select {
 		case <-regDurationDone:
@@ -480,7 +481,7 @@ func (varr RampingArrivalRate) Run(parentCtx context.Context, out chan<- stats.S
 		// dropped - we aren't going to try to recover it, but
 
 		stats.PushIfNotDone(parentCtx, out, stats.Sample{
-			Value: 1, Metric: metrics.DroppedIterations,
+			Value: 1, Metric: droppedIterationMetric,
 			Tags: metricTags, Time: time.Now(),
 		})
 
