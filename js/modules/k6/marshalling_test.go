@@ -135,7 +135,9 @@ func TestSetupDataMarshalling(t *testing.T) {
 	samples := make(chan<- stats.SampleContainer, 100)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ctx = metrics.WithBuiltinMetrics(ctx, metrics.RegisterBuiltinMetrics(stats.NewRegistry(samples)))
+	registry := stats.NewRegistry(samples)
+	ctx = stats.WithRegistry(ctx, registry)
+	ctx = metrics.WithBuiltinMetrics(ctx, metrics.RegisterBuiltinMetrics(registry))
 	defer cancel()
 	if !assert.NoError(t, runner.Setup(ctx, samples)) {
 		return
