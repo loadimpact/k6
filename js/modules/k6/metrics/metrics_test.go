@@ -64,8 +64,9 @@ func TestMetrics(t *testing.T) {
 
 					ctxPtr := new(context.Context)
 					*ctxPtr = common.WithRuntime(context.Background(), rt)
-					rt.Set("metrics", common.Bind(rt, New(), ctxPtr))
-
+					m := New()
+					m.WithContext(func() context.Context { return *ctxPtr })
+					rt.Set("metrics", m)
 					root, _ := lib.NewGroup("", nil)
 					child, _ := root.Group("child")
 					samples := make(chan stats.SampleContainer, 1000)
@@ -86,7 +87,7 @@ func TestMetrics(t *testing.T) {
 					t.Run("ExitInit", func(t *testing.T) {
 						*ctxPtr = lib.WithState(*ctxPtr, state)
 						_, err := rt.RunString(fmt.Sprintf(`new metrics.%s("my_metric")`, fn))
-						assert.EqualError(t, err, "metrics must be declared in the init context at apply (native)")
+						assert.Contains(t, err.Error(), "metrics must be declared in the init context")
 					})
 
 					groups := map[string]*lib.Group{
@@ -177,7 +178,10 @@ func TestMetricGetName(t *testing.T) {
 
 	ctxPtr := new(context.Context)
 	*ctxPtr = common.WithRuntime(context.Background(), rt)
-	require.NoError(t, rt.Set("metrics", common.Bind(rt, New(), ctxPtr)))
+	m, ok := New().NewModuleInstancePerVU().(*MetricsModule)
+	require.True(t, ok)
+	m.WithContext(func() context.Context { return *ctxPtr })
+	rt.Set("metrics", m)
 	v, err := rt.RunString(`
 		var m = new metrics.Counter("my_metric")
 		m.name
