@@ -280,3 +280,43 @@ func Bind(rt *goja.Runtime, v interface{}, ctxPtr *context.Context) map[string]i
 
 	return exports
 }
+
+// TODO move this
+// ModuleInstance is something that will be provided to modules and they need to embed it.
+type ModuleInstance interface {
+	GetContext() context.Context
+	GetExports() Exports
+	// we can add other methods here
+	// sealing field will help probably with pointing users that they just need to embed this in the
+}
+
+type Exports struct {
+	Default interface{}
+	Others  map[string]interface{}
+}
+
+func GenerateExports(v interface{}) Exports {
+	exports := make(map[string]interface{})
+	val := reflect.ValueOf(v)
+	typ := val.Type()
+	for i := 0; i < typ.NumMethod(); i++ {
+		meth := typ.Method(i)
+		name := MethodName(typ, meth)
+		fn := val.Method(i)
+		exports[name] = fn.Interface()
+	}
+
+	// If v is a pointer, we need to indirect it to access fields.
+	if typ.Kind() == reflect.Ptr {
+		val = val.Elem()
+		typ = val.Type()
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name := FieldName(typ, field)
+		if name != "" {
+			exports[name] = val.Field(i).Interface()
+		}
+	}
+	return Exports{Default: exports, Others: exports}
+}
