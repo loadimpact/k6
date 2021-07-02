@@ -128,7 +128,7 @@ type tc39BenchmarkItem struct {
 type tc39BenchmarkData []tc39BenchmarkItem
 
 type tc39TestCtx struct {
-	compilerPool   *sync.Pool
+	compilerPool   *sync.Pool // TODO probably better with something that will keep as many as there are threads as that is what we want
 	base           string
 	t              *testing.T
 	prgCache       map[string]*goja.Program
@@ -440,7 +440,7 @@ func (ctx *tc39TestCtx) compile(base, name string) (*goja.Program, error) {
 		}
 
 		str := string(b)
-		compiler := ctx.compilerPool.Get().(*compiler.Compiler)
+		compiler := ctx.compilerPool.Get().(*compiler.Compiler) //nolint:forcetypeassert
 		defer ctx.compilerPool.Put(compiler)
 		prg, _, err = compiler.Compile(str, name, "", "", false, lib.CompatibilityModeExtended)
 		if err != nil {
@@ -481,11 +481,14 @@ func (ctx *tc39TestCtx) runTC39Script(name, src string, includes []string, vm *g
 	}
 
 	var p *goja.Program
-	compiler := ctx.compilerPool.Get().(*compiler.Compiler)
+	compiler := ctx.compilerPool.Get().(*compiler.Compiler) //nolint:forcetypeassert
 	defer ctx.compilerPool.Put(compiler)
 	p, _, origErr = compiler.Compile(src, name, "", "", false, lib.CompatibilityModeBase)
 	if origErr != nil {
-		compiler.InitializeBabel()
+		err = compiler.InitializeBabel()
+		if err != nil {
+			return
+		}
 		src, _, err = compiler.Transform(src, name)
 		if err == nil {
 			p, _, err = compiler.Compile(src, name, "", "", false, lib.CompatibilityModeBase)
@@ -547,7 +550,6 @@ func TestTC39(t *testing.T) {
 		base: tc39BASE,
 		compilerPool: &sync.Pool{
 			New: func() interface{} {
-				fmt.Println("new")
 				c := compiler.New(testutils.NewLogger(t))
 				return c
 			},
