@@ -39,12 +39,15 @@ type Config struct {
 	ProjectID       null.Int    `json:"projectID" envconfig:"K6_CLOUD_PROJECT_ID"`
 	Name            null.String `json:"name" envconfig:"K6_CLOUD_NAME"`
 
-	Host        null.String `json:"host" envconfig:"K6_CLOUD_HOST"`
-	LogsTailURL null.String `json:"-" envconfig:"K6_CLOUD_LOGS_TAIL_URL"`
-	PushRefID   null.String `json:"pushRefID" envconfig:"K6_CLOUD_PUSH_REF_ID"`
-	WebAppURL   null.String `json:"webAppURL" envconfig:"K6_CLOUD_WEB_APP_URL"`
-	NoCompress  null.Bool   `json:"noCompress" envconfig:"K6_CLOUD_NO_COMPRESS"`
-	StopOnError null.Bool   `json:"stopOnError" envconfig:"K6_CLOUD_STOP_ON_ERROR"`
+	Host                      null.String        `json:"host" envconfig:"K6_CLOUD_HOST"`
+	LogsTailURL               null.String        `json:"-" envconfig:"K6_CLOUD_LOGS_TAIL_URL"`
+	LogsTailRefreshAfter      types.NullDuration `json:"-" envconfig:"K6_CLOUD_LOGS_TAIL_REFRESH_AFTER"`
+	LogsTailDialRetryAttempts null.Int           `json:"-" envconfig:"K6_CLOUD_LOGS_TAIL_DIAL_RETRY_ATTEMPTS"`
+	LogsTailDialRetryInterval types.NullDuration `json:"-" envconfig:"K6_CLOUD_LOGS_TAIL_DIAL_RETRY_INTERVAL"`
+	PushRefID                 null.String        `json:"pushRefID" envconfig:"K6_CLOUD_PUSH_REF_ID"`
+	WebAppURL                 null.String        `json:"webAppURL" envconfig:"K6_CLOUD_WEB_APP_URL"`
+	NoCompress                null.Bool          `json:"noCompress" envconfig:"K6_CLOUD_NO_COMPRESS"`
+	StopOnError               null.Bool          `json:"stopOnError" envconfig:"K6_CLOUD_STOP_ON_ERROR"`
 
 	MaxMetricSamplesPerPackage null.Int `json:"maxMetricSamplesPerPackage" envconfig:"K6_CLOUD_MAX_METRIC_SAMPLES_PER_PACKAGE"`
 
@@ -161,6 +164,9 @@ func NewConfig() Config {
 	return Config{
 		Host:                       null.NewString("https://ingest.k6.io", false),
 		LogsTailURL:                null.NewString("wss://cloudlogs.k6.io/api/v1/tail", false),
+		LogsTailRefreshAfter:       types.NewNullDuration(50*time.Minute, false),
+		LogsTailDialRetryAttempts:  null.NewInt(2, false),
+		LogsTailDialRetryInterval:  types.NewNullDuration(5*time.Second, false),
 		WebAppURL:                  null.NewString("https://app.k6.io", false),
 		MetricPushInterval:         types.NewNullDuration(1*time.Second, false),
 		MetricPushConcurrency:      null.NewInt(1, false),
@@ -200,6 +206,15 @@ func (c Config) Apply(cfg Config) Config {
 	}
 	if cfg.LogsTailURL.Valid && cfg.LogsTailURL.String != "" {
 		c.LogsTailURL = cfg.LogsTailURL
+	}
+	if cfg.LogsTailRefreshAfter.Valid && cfg.LogsTailRefreshAfter.Duration > 0 {
+		c.LogsTailRefreshAfter = cfg.LogsTailRefreshAfter
+	}
+	if cfg.LogsTailDialRetryAttempts.Valid && cfg.LogsTailDialRetryAttempts.Int64 > 0 {
+		c.LogsTailDialRetryAttempts = cfg.LogsTailDialRetryAttempts
+	}
+	if cfg.LogsTailDialRetryInterval.Valid && cfg.LogsTailDialRetryInterval.Duration >= 0 {
+		c.LogsTailDialRetryInterval = cfg.LogsTailDialRetryInterval
 	}
 	if cfg.PushRefID.Valid {
 		c.PushRefID = cfg.PushRefID

@@ -21,10 +21,15 @@
 package cloudapi
 
 import (
+	"context"
+	"fmt"
 	"io/ioutil"
+	"net/http"
+	"sync"
 	"testing"
 	"time"
 
+	gomock "github.com/golang/mock/gomock"
 	"github.com/mailru/easyjson"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -122,4 +127,145 @@ func TestMSGLog(t *testing.T) {
 		require.Equal(t, expectedMsg, entry.Message)
 		require.Equal(t, expectTime, entry.Time)
 	}
+}
+
+func TestWSConnReadMessage(t *testing.T) {
+	t.Parallel()
+
+	wsurl := "ws://testurl"
+	wsh := http.Header{}
+	wsh.Add("key1", "v1")
+	expmsg := []byte("Hello world!")
+
+	t.Run("SuccessNoRequiredReconnect", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		dialer := NewMockLogtailStreamDialer(ctrl)
+		conn := NewMockLogtailStreamer(ctrl)
+
+		conn.EXPECT().ReadMessage().Return(0, expmsg, nil)
+
+		wsc := wsconn{
+			m:          sync.Mutex{},
+			conn:       conn,
+			dialer:     dialer,
+			dialConfig: dialConfig{url: wsurl, headers: wsh},
+		}
+		m, err := wsc.ReadMessage(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, expmsg, m)
+	})
+	t.Run("SuccessRequiredReconnect", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		dialer := NewMockLogtailStreamDialer(ctrl)
+		conn := NewMockLogtailStreamer(ctrl)
+
+		dialer.EXPECT().DialContext(context.Background(), wsurl, wsh).Return(conn, nil)
+		firstCall := conn.EXPECT().ReadMessage().Return(0, nil, fmt.Errorf("unexpected error"))
+		conn.EXPECT().ReadMessage().After(firstCall).Return(0, expmsg, nil)
+		conn.EXPECT().WriteControl(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+		conn.EXPECT().Close().Return(nil)
+
+		var redialCount int
+		wsc := wsconn{
+			m:          sync.Mutex{},
+			conn:       conn,
+			dialer:     dialer,
+			dialConfig: dialConfig{url: wsurl, headers: wsh},
+			onRedialing: func() {
+				redialCount++
+			},
+		}
+
+		m, err := wsc.ReadMessage(context.Background())
+		require.NoError(t, err)
+
+		assert.Equal(t, expmsg, m)
+		assert.Equal(t, 1, redialCount)
+	})
+	t.Run("Fail", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		dialer := NewMockLogtailStreamDialer(ctrl)
+		conn := NewMockLogtailStreamer(ctrl)
+
+		dialer.EXPECT().DialContext(context.Background(), wsurl, wsh).Return(conn, nil)
+		conn.EXPECT().Close().Return(nil)
+		firstCall := conn.EXPECT().ReadMessage().Return(0, nil, fmt.Errorf("unexpected error"))
+		conn.EXPECT().ReadMessage().After(firstCall).Return(0, nil, fmt.Errorf("a second error"))
+		conn.EXPECT().WriteControl(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+		wsc := wsconn{
+			m:           sync.Mutex{},
+			conn:        conn,
+			dialer:      dialer,
+			dialConfig:  dialConfig{url: wsurl, headers: wsh},
+			onRedialing: func() {},
+		}
+		m, err := wsc.ReadMessage(context.Background())
+		assert.Error(t, err, "a second error")
+		assert.Nil(t, m)
+	})
+}
+
+func TestWSConnKeepAlive(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	dialer := NewMockLogtailStreamDialer(ctrl)
+	conn := NewMockLogtailStreamer(ctrl)
+
+	wsurl := "ws://testurl"
+	wsh := http.Header{}
+	wsh.Add("key1", "v1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wg := sync.WaitGroup{}
+
+	// it asserts that the dial is invoked when the timer fires.
+	// and that the retry logic is invoked in case of failure
+	firstCall := dialer.EXPECT().DialContext(ctx, wsurl, wsh).Return(nil, fmt.Errorf("unexpected error"))
+	dialer.EXPECT().DialContext(ctx, wsurl, wsh).After(firstCall).DoAndReturn(func(_ context.Context, _ string, _ http.Header) (LogtailStreamer, error) {
+		// stop the keep-alive listener
+		cancel()
+		wg.Done()
+		// the stream conn is not required for this test case
+		return nil, nil
+	})
+	conn.EXPECT().WriteControl(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	conn.EXPECT().Close().Return(nil)
+
+	clockch := make(chan time.Time)
+	defer close(clockch)
+
+	var redialCount int
+	wsc := wsconn{
+		m:      sync.Mutex{},
+		conn:   conn,
+		dialer: dialer,
+		dialConfig: dialConfig{
+			url:           wsurl,
+			headers:       wsh,
+			retryAttempts: 2,
+		},
+		afterfn: func(d time.Duration) <-chan time.Time {
+			return clockch
+		},
+		onRedialing: func() {
+			redialCount++
+		},
+	}
+
+	wg.Add(1)
+	go wsc.keepAlive(ctx, time.Second)
+	clockch <- time.Now()
+	wg.Wait()
+
+	assert.Equal(t, 1, redialCount)
 }
