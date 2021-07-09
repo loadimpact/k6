@@ -11,6 +11,7 @@ require (
 	github.com/dop251/goja v0.0.0-20210427212725-462d53687b0d
 	github.com/fatih/color v1.11.0
 	github.com/gedex/inflector v0.0.0-20170307190818-16278e9db813 // indirect
+	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-cmp v0.5.1 // indirect
 	github.com/gorilla/websocket v1.4.2
@@ -39,9 +40,7 @@ require (
 	github.com/tidwall/pretty v1.1.0
 	golang.org/x/crypto v0.0.0-20201016220609-9e8e0b390897
 	golang.org/x/net v0.0.0-20210428185458-6f5299370f2b
-	golang.org/x/sys v0.0.0-20201204225414-ed752295db88 // indirect
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/genproto v0.0.0-20200903010400-9bfcb5116336 // indirect
 	google.golang.org/grpc v1.37.1
 	google.golang.org/protobuf v1.25.1-0.20200805231151-a709e31e5d12
