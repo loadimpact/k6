@@ -164,7 +164,7 @@ func TestSession(t *testing.T) {
 				socket.send("test")
 			})
 			socket.on("message", function (data){
-				if (!data=="test") {
+				if (!(data=="test")) {
 					throw new Error ("echo'd data doesn't match our message!");
 				}
 				socket.close()
@@ -314,6 +314,25 @@ func TestSession(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	assertSessionMetricsEmitted(t, stats.GetBufferedSamples(samples), "", sr("WSBIN_URL/ws-echo"), 101, "")
+
+	t.Run("client_cookie", func(t *testing.T) {
+		t.Parallel()
+		_, err := rt.RunString(sr(`
+		var params = {
+			cookies: { "Session": "123" },
+		};
+		var res = ws.connect("WSBIN_URL/ws-echo-cookie", params, function(socket){
+			socket.on("message", function (data){
+				if (!(data == "Session=123")) {
+					throw new Error ("echo'd data doesn't match our message!");
+				}
+				socket.close();
+			});
+		});
+		`))
+		assert.NoError(t, err)
+		assertSessionMetricsEmitted(t, stats.GetBufferedSamples(samples), "", sr("WSBIN_URL/ws-echo-cookie"), 101, "")
+	})
 
 	serverCloseTests := []struct {
 		name     string
