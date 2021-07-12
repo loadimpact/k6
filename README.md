@@ -76,6 +76,12 @@ choco install k6
 
 Otherwise you can manually download and install the [latest official `.msi` package](https://dl.k6.io/msi/k6-latest-amd64.msi).
 
+There is also the community maintained package (automatic, embedded) on [Chocolatey gallery](https://chocolatey.org/packages/k6) which you can install by running:
+
+```ps1
+choco install k6
+```
+
 ### Linux
 
 For Debian-based Linux distributions like Ubuntu, you can install k6 from the private deb repo like this:
