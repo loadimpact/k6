@@ -43,13 +43,21 @@ func TestMetrics(t *testing.T) {
 		"Rate":    stats.Rate,
 	}
 	values := map[string]struct {
-		JS    string
-		Float float64
+		JS      string
+		Float   float64
+		isError bool
 	}{
-		"Float": {`2.5`, 2.5},
-		"Int":   {`5`, 5.0},
-		"True":  {`true`, 1.0},
-		"False": {`false`, 0.0},
+		"Float":                 {JS: `2.5`, Float: 2.5},
+		"Int":                   {JS: `5`, Float: 5.0},
+		"True":                  {JS: `true`, Float: 1.0},
+		"False":                 {JS: `false`, Float: 0.0},
+		"null":                  {JS: `null`, isError: true},
+		"undefined":             {JS: `undefined`, isError: true},
+		"NaN":                   {JS: `NaN`, isError: true},
+		"string":                {JS: `"string"`, isError: true},
+		"string 5":              {JS: `"5.3"`, Float: 5.3},
+		"some object":           {JS: `{something: 3}`, isError: true},
+		"another metric object": {JS: `m`, isError: true},
 	}
 	for fn, mtyp := range types {
 		fn, mtyp := fn, mtyp
@@ -103,14 +111,20 @@ func TestMetrics(t *testing.T) {
 								t.Run(name, func(t *testing.T) {
 									t.Run("Simple", func(t *testing.T) {
 										_, err := rt.RunString(fmt.Sprintf(`m.add(%v)`, val.JS))
-										assert.NoError(t, err)
+										if val.isError {
+											if assert.Error(t, err) {
+												return
+											}
+										} else {
+											assert.NoError(t, err)
+										}
 										bufSamples := stats.GetBufferedSamples(samples)
 										if assert.Len(t, bufSamples, 1) {
 											sample, ok := bufSamples[0].(stats.Sample)
 											require.True(t, ok)
 
 											assert.NotZero(t, sample.Time)
-											assert.Equal(t, sample.Value, val.Float)
+											assert.Equal(t, val.Float, sample.Value)
 											assert.Equal(t, map[string]string{
 												"group": g.Path,
 											}, sample.Tags.CloneTags())
@@ -121,14 +135,20 @@ func TestMetrics(t *testing.T) {
 									})
 									t.Run("Tags", func(t *testing.T) {
 										_, err := rt.RunString(fmt.Sprintf(`m.add(%v, {a:1})`, val.JS))
-										assert.NoError(t, err)
+										if val.isError {
+											if assert.Error(t, err) {
+												return
+											}
+										} else {
+											assert.NoError(t, err)
+										}
 										bufSamples := stats.GetBufferedSamples(samples)
 										if assert.Len(t, bufSamples, 1) {
 											sample, ok := bufSamples[0].(stats.Sample)
 											require.True(t, ok)
 
 											assert.NotZero(t, sample.Time)
-											assert.Equal(t, sample.Value, val.Float)
+											assert.Equal(t, val.Float, sample.Value)
 											assert.Equal(t, map[string]string{
 												"group": g.Path,
 												"a":     "1",

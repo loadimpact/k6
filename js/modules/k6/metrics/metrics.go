@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"time"
 
@@ -47,7 +48,10 @@ type Metric struct {
 }
 
 // ErrMetricsAddInInitContext is error returned when adding to metric is done in the init context
-var ErrMetricsAddInInitContext = common.NewInitContextError("Adding to metrics in the init context is not supported")
+var (
+	ErrMetricsAddInInitContext = common.NewInitContextError("Adding to metrics in the init context is not supported")
+	ErrMetricsAddNan           = errors.New("adding a non number, non boolean to a metric")
+)
 
 func newMetric(ctxPtr *context.Context, name string, t stats.MetricType, isTime []bool) (interface{}, error) {
 	if lib.GetState(*ctxPtr) != nil {
@@ -83,16 +87,24 @@ func (m Metric) Add(ctx context.Context, v goja.Value, addTags ...map[string]str
 		return false, ErrMetricsAddInInitContext
 	}
 
-	tags := state.CloneTags()
-	for _, ts := range addTags {
-		for k, v := range ts {
-			tags[k] = v
-		}
+	if goja.IsNull(v) {
+		return false, ErrMetricsAddNan
 	}
 
 	vfloat := v.ToFloat()
 	if vfloat == 0 && v.ToBoolean() {
 		vfloat = 1.0
+	}
+
+	if math.IsNaN(vfloat) {
+		return false, ErrMetricsAddNan
+	}
+
+	tags := state.CloneTags()
+	for _, ts := range addTags {
+		for k, v := range ts {
+			tags[k] = v
+		}
 	}
 
 	sample := stats.Sample{Time: time.Now(), Metric: m.metric, Value: vfloat, Tags: stats.IntoSampleTags(&tags)}
