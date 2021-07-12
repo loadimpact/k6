@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,6 +191,23 @@ func (r *Runner) newVU(idLocal, idGlobal uint64, samplesOut chan<- stats.SampleC
 		NameToCertificate:  nameToCert,
 		Renegotiation:      tls.RenegotiateFreelyAsClient,
 	}
+
+	if cas := r.Bundle.Options.TLSExtraCAs; cas != nil {
+		pool, _ := x509.SystemCertPool()
+		if pool == nil {
+			// SystemCertPool is not available on Windows.
+			// x509.SystemCertPool will always fail in that environment.
+			// The error can be ignored, instead, we initialize a new pool.
+			pool = x509.NewCertPool()
+		}
+		for _, pem := range cas {
+			if !pool.AppendCertsFromPEM([]byte(pem)) {
+				return nil, errors.New("there are no CAs to add to the system pool")
+			}
+		}
+		tlsConfig.RootCAs = pool
+	}
+
 	transport := &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		TLSClientConfig:     tlsConfig,
