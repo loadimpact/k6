@@ -155,6 +155,7 @@ func TestOptionsSettingToScript(t *testing.T) {
 		t.Run(fmt.Sprintf("Variant#%d", i), func(t *testing.T) {
 			t.Parallel()
 			data := variant + `
+					exports.options = options;
 					exports.default = function() {
 						if (!options) {
 							throw new Error("Expected options to be defined!");
@@ -187,19 +188,19 @@ func TestOptionsSettingToScript(t *testing.T) {
 func TestOptionsPropagationToScript(t *testing.T) {
 	t.Parallel()
 	data := `
-			var options = { setupTimeout: "1s", myOption: "test" };
-			exports.options = options;
+			exports.options = { setupTimeout: "1s", myOption: "test" };
 			exports.default = function() {
-				if (options.external) {
+				if (exports.options.external) {
 					throw new Error("Unexpected property external!");
 				}
-				if (options.myOption != "test") {
-					throw new Error("expected myOption to remain unchanged but it was '" + options.myOption + "'");
+				if (exports.options.myOption != "test") {
+					throw new Error("expected myOption to remain unchanged but it was '" + exports.options.myOption + "'");
 				}
-				if (options.setupTimeout != __ENV.expectedSetupTimeout) {
-					throw new Error("expected setupTimeout to be " + __ENV.expectedSetupTimeout + " but it was " + options.setupTimeout);
+				if (exports.options.setupTimeout != __ENV.expectedSetupTimeout) {
+					throw new Error("expected setupTimeout to be " + __ENV.expectedSetupTimeout + " but it was " + exports.options.setupTimeout);
 				}
-			};`
+			};
+			`
 
 	expScriptOptions := lib.Options{SetupTimeout: types.NullDurationFrom(1 * time.Second)}
 	r1, err := getSimpleRunner(t, "/script.js", data,
