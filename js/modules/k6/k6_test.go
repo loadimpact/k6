@@ -117,6 +117,8 @@ func TestGroup(t *testing.T) {
 	ctx := context.Background()
 	ctx = lib.WithState(ctx, state)
 	ctx = common.WithRuntime(ctx, rt)
+	builtinMetrics := metrics.RegisterBuiltinMetrics(stats.NewRegistry(state.Samples))
+	ctx = metrics.WithBuiltinMetrics(ctx, builtinMetrics)
 	rt.Set("k6", common.Bind(rt, New(), &ctx))
 
 	t.Run("Valid", func(t *testing.T) {
@@ -136,32 +138,42 @@ func TestGroup(t *testing.T) {
 	})
 }
 
-func TestCheck(t *testing.T) {
+func checkTestRuntime(t testing.TB, ctxs ...*context.Context) (
+	*goja.Runtime, chan stats.SampleContainer, *metrics.BuiltInMetrics,
+) {
 	rt := goja.New()
 
 	root, err := lib.NewGroup("", nil)
 	assert.NoError(t, err)
-
-	baseCtx := common.WithRuntime(context.Background(), rt)
-
-	ctx := new(context.Context)
-	*ctx = baseCtx
-	rt.Set("k6", common.Bind(rt, New(), ctx))
-
-	getState := func() (*lib.State, chan stats.SampleContainer) {
-		samples := make(chan stats.SampleContainer, 1000)
-		return &lib.State{
-			Group: root,
-			Options: lib.Options{
-				SystemTags: &stats.DefaultSystemTagSet,
-			},
-			Samples: samples,
-			Tags:    map[string]string{"group": root.Path},
-		}, samples
+	samples := make(chan stats.SampleContainer, 1000)
+	state := &lib.State{
+		Group: root,
+		Options: lib.Options{
+			SystemTags: &stats.DefaultSystemTagSet,
+		},
+		Samples: samples,
+		Tags:    map[string]string{"group": root.Path},
 	}
+	ctx := context.Background()
+	if len(ctxs) == 1 { // hacks
+		ctx = *ctxs[0]
+	}
+	ctx = common.WithRuntime(ctx, rt)
+	ctx = lib.WithState(ctx, state)
+	builtinMetrics := metrics.RegisterBuiltinMetrics(stats.NewRegistry(samples))
+	ctx = metrics.WithBuiltinMetrics(ctx, builtinMetrics)
+	rt.Set("k6", common.Bind(rt, New(), &ctx))
+	if len(ctxs) == 1 { // hacks
+		*ctxs[0] = ctx
+	}
+	return rt, samples, builtinMetrics
+}
+
+func TestCheck(t *testing.T) {
+	t.Parallel()
 	t.Run("Object", func(t *testing.T) {
-		state, samples := getState()
-		*ctx = lib.WithState(baseCtx, state)
+		t.Parallel()
+		rt, samples, builtinMetrics := checkTestRuntime(t)
 
 		_, err := rt.RunString(`k6.check(null, { "check": true })`)
 		assert.NoError(t, err)
@@ -172,7 +184,7 @@ func TestCheck(t *testing.T) {
 			require.True(t, ok)
 
 			assert.NotZero(t, sample.Time)
-			assert.Equal(t, metrics.Checks, sample.Metric)
+			assert.Equal(t, builtinMetrics.Checks, sample.Metric)
 			assert.Equal(t, float64(1), sample.Value)
 			assert.Equal(t, map[string]string{
 				"group": "",
@@ -181,8 +193,8 @@ func TestCheck(t *testing.T) {
 		}
 
 		t.Run("Multiple", func(t *testing.T) {
-			state, samples := getState()
-			*ctx = lib.WithState(baseCtx, state)
+			t.Parallel()
+			rt, samples, _ := checkTestRuntime(t)
 
 			_, err := rt.RunString(`k6.check(null, { "a": true, "b": false })`)
 			assert.NoError(t, err)
@@ -211,14 +223,16 @@ func TestCheck(t *testing.T) {
 		})
 
 		t.Run("Invalid", func(t *testing.T) {
+			t.Parallel()
+			rt, _, _ := checkTestRuntime(t)
 			_, err := rt.RunString(`k6.check(null, { "::": true })`)
 			assert.Contains(t, err.Error(), "group and check names may not contain '::'")
 		})
 	})
 
 	t.Run("Array", func(t *testing.T) {
-		state, samples := getState()
-		*ctx = lib.WithState(baseCtx, state)
+		t.Parallel()
+		rt, samples, builtinMetrics := checkTestRuntime(t)
 
 		_, err := rt.RunString(`k6.check(null, [ true ])`)
 		assert.NoError(t, err)
@@ -229,7 +243,7 @@ func TestCheck(t *testing.T) {
 			require.True(t, ok)
 
 			assert.NotZero(t, sample.Time)
-			assert.Equal(t, metrics.Checks, sample.Metric)
+			assert.Equal(t, builtinMetrics.Checks, sample.Metric)
 			assert.Equal(t, float64(1), sample.Value)
 			assert.Equal(t, map[string]string{
 				"group": "",
@@ -239,8 +253,8 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("Literal", func(t *testing.T) {
-		state, samples := getState()
-		*ctx = lib.WithState(baseCtx, state)
+		t.Parallel()
+		rt, samples, _ := checkTestRuntime(t)
 
 		_, err := rt.RunString(`k6.check(null, 12345)`)
 		assert.NoError(t, err)
@@ -248,9 +262,8 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("Throws", func(t *testing.T) {
-		state, samples := getState()
-		*ctx = lib.WithState(baseCtx, state)
-
+		t.Parallel()
+		rt, samples, builtinMetrics := checkTestRuntime(t)
 		_, err := rt.RunString(`
 		k6.check(null, {
 			"a": function() { throw new Error("error A") },
@@ -265,7 +278,7 @@ func TestCheck(t *testing.T) {
 			require.True(t, ok)
 
 			assert.NotZero(t, sample.Time)
-			assert.Equal(t, metrics.Checks, sample.Metric)
+			assert.Equal(t, builtinMetrics.Checks, sample.Metric)
 			assert.Equal(t, float64(0), sample.Value)
 			assert.Equal(t, map[string]string{
 				"group": "",
@@ -275,6 +288,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("Types", func(t *testing.T) {
+		t.Parallel()
 		templates := map[string]string{
 			"Literal":      `k6.check(null,{"check": %s})`,
 			"Callable":     `k6.check(null,{"check": function() { return %s; }})`,
@@ -295,11 +309,12 @@ func TestCheck(t *testing.T) {
 		for name, tpl := range templates {
 			name, tpl := name, tpl
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				for value, succ := range testdata {
 					value, succ := value, succ
 					t.Run(value, func(t *testing.T) {
-						state, samples := getState()
-						*ctx = lib.WithState(baseCtx, state)
+						t.Parallel()
+						rt, samples, builtinMetrics := checkTestRuntime(t)
 
 						v, err := rt.RunString(fmt.Sprintf(tpl, value))
 						if assert.NoError(t, err) {
@@ -312,7 +327,7 @@ func TestCheck(t *testing.T) {
 							require.True(t, ok)
 
 							assert.NotZero(t, sample.Time)
-							assert.Equal(t, metrics.Checks, sample.Metric)
+							assert.Equal(t, builtinMetrics.Checks, sample.Metric)
 							if succ {
 								assert.Equal(t, float64(1), sample.Value)
 							} else {
@@ -329,12 +344,9 @@ func TestCheck(t *testing.T) {
 		}
 
 		t.Run("ContextExpiry", func(t *testing.T) {
-			root, err := lib.NewGroup("", nil)
-			assert.NoError(t, err)
-
-			state := &lib.State{Group: root, Samples: make(chan stats.SampleContainer, 1000)}
-			ctx2, cancel := context.WithCancel(lib.WithState(baseCtx, state))
-			*ctx = ctx2
+			ctx, cancel := context.WithCancel(context.Background())
+			rt, _, _ := checkTestRuntime(t, &ctx)
+			root := lib.GetState(ctx).Group
 
 			v, err := rt.RunString(`k6.check(null, { "check": true })`)
 			if assert.NoError(t, err) {
@@ -358,8 +370,8 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("Tags", func(t *testing.T) {
-		state, samples := getState()
-		*ctx = lib.WithState(baseCtx, state)
+		t.Parallel()
+		rt, samples, builtinMetrics := checkTestRuntime(t)
 
 		v, err := rt.RunString(`k6.check(null, {"check": true}, {a: 1, b: "2"})`)
 		if assert.NoError(t, err) {
@@ -372,7 +384,7 @@ func TestCheck(t *testing.T) {
 			require.True(t, ok)
 
 			assert.NotZero(t, sample.Time)
-			assert.Equal(t, metrics.Checks, sample.Metric)
+			assert.Equal(t, builtinMetrics.Checks, sample.Metric)
 			assert.Equal(t, float64(1), sample.Value)
 			assert.Equal(t, map[string]string{
 				"group": "",

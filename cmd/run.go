@@ -49,7 +49,10 @@ import (
 	"go.k6.io/k6/js"
 	"go.k6.io/k6/lib"
 	"go.k6.io/k6/lib/consts"
+	"go.k6.io/k6/lib/metrics"
 	"go.k6.io/k6/loader"
+	"go.k6.io/k6/output"
+	"go.k6.io/k6/stats"
 	"go.k6.io/k6/ui/pb"
 )
 
@@ -153,10 +156,6 @@ a commandline interface for interacting with it.`,
 			//    can start winding down its metrics processing.
 			globalCtx, globalCancel := context.WithCancel(ctx)
 			defer globalCancel()
-			lingerCtx, lingerCancel := context.WithCancel(globalCtx)
-			defer lingerCancel()
-			runCtx, runCancel := context.WithCancel(lingerCtx)
-			defer runCancel()
 
 			// Create a local execution scheduler wrapping the runner.
 			logger.Debug("Initializing the execution scheduler...")
@@ -197,6 +196,16 @@ a commandline interface for interacting with it.`,
 				return err
 			}
 
+			registry := stats.NewRegistry(engine.Samples)
+			builtInMetrics := metrics.RegisterBuiltinMetrics(registry)
+			globalCtx = stats.WithRegistry(globalCtx, registry)
+			globalCtx = metrics.WithBuiltinMetrics(globalCtx, builtInMetrics)
+
+			lingerCtx, lingerCancel := context.WithCancel(globalCtx)
+			defer lingerCancel()
+			runCtx, runCancel := context.WithCancel(lingerCtx)
+			defer runCancel()
+
 			// Spin up the REST API server, if not disabled.
 			if address != "" {
 				initBar.Modify(pb.WithConstProgress(0, "Init API server"))
@@ -216,11 +225,11 @@ a commandline interface for interacting with it.`,
 
 			// We do this here so we can get any output URLs below.
 			initBar.Modify(pb.WithConstProgress(0, "Starting outputs"))
-			err = engine.StartOutputs()
+			err = StartOutputs(logger, outputs, engine, builtInMetrics)
 			if err != nil {
 				return err
 			}
-			defer engine.StopOutputs()
+			defer StopOutputs(logger, outputs)
 
 			printExecutionDescription(
 				"local", filename, "", conf, execScheduler.GetState().ExecutionTuple,
@@ -441,4 +450,54 @@ func handleSummaryResult(fs afero.Fs, stdOut, stdErr io.Writer, result map[strin
 	}
 
 	return consolidateErrorMessage(errs, "Could not save some summary information:")
+}
+
+// StartOutputs spins up all configured outputs, giving the thresholds to any
+// that can accept them. And if some output fails, stop the already started
+// ones. This may take some time, since some outputs make initial network
+// requests to set up whatever remote services are going to listen to them.
+func StartOutputs(
+	logger logrus.FieldLogger,
+	outputs []output.Output,
+	engine *core.Engine,
+	builtinMetrics *metrics.BuiltInMetrics,
+) error {
+	logger.Debugf("Starting %d outputs...", len(outputs))
+	for i, out := range outputs {
+		if thresholdOut, ok := out.(output.WithThresholds); ok {
+			thresholdOut.SetThresholds(engine.Options.Thresholds)
+		}
+
+		if stopOut, ok := out.(output.WithTestRunStop); ok {
+			stopOut.SetTestRunStopCallback(
+				func(err error) {
+					logger.WithError(err).Error("Received error to stop from output")
+					engine.Stop()
+				})
+		}
+
+		if builtinMetricOut, ok := out.(output.WithBuiltinMetrics); ok {
+			builtinMetricOut.SetBuiltinMetrics(builtinMetrics)
+		}
+
+		if err := out.Start(); err != nil {
+			stopOutputs(logger, outputs, i)
+			return err
+		}
+	}
+	return nil
+}
+
+// StopOutputs stops all configured outputs.
+func StopOutputs(logger logrus.FieldLogger, outputs []output.Output) {
+	stopOutputs(logger, outputs, len(outputs))
+}
+
+func stopOutputs(logger logrus.FieldLogger, outputs []output.Output, upToID int) {
+	logger.Debugf("Stopping %d outputs...", upToID)
+	for i := 0; i < upToID; i++ {
+		if err := outputs[i].Stop(); err != nil {
+			logger.WithError(err).Errorf("Stopping output %d failed", i)
+		}
+	}
 }

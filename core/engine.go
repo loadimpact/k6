@@ -67,7 +67,8 @@ type Engine struct {
 	Metrics     map[string]*stats.Metric
 	MetricsLock sync.Mutex
 
-	Samples chan stats.SampleContainer
+	builtInMetrics *metrics.BuiltInMetrics
+	Samples        chan stats.SampleContainer
 
 	// Assigned to metrics upon first received sample.
 	thresholds map[string]stats.Thresholds
@@ -147,6 +148,10 @@ func (e *Engine) StartOutputs() error {
 				})
 		}
 
+		if builtinMetricOut, ok := out.(output.WithBuiltinMetrics); ok {
+			builtinMetricOut.SetBuiltinMetrics(e.builtInMetrics)
+		}
+
 		if err := out.Start(); err != nil {
 			e.stopOutputs(i)
 			return err
@@ -184,6 +189,7 @@ func (e *Engine) stopOutputs(upToID int) {
 //    returned by cancelling the globalCtx
 //  - The second returned lambda can be used to wait for that process to finish.
 func (e *Engine) Init(globalCtx, runCtx context.Context) (run func() error, wait func(), err error) {
+	e.builtInMetrics = metrics.GetBuiltInMetrics(globalCtx)
 	e.logger.Debug("Initialization starting...")
 	// TODO: if we ever need metrics processing in the init context, we can move
 	// this below the other components... or even start them concurrently?
@@ -416,12 +422,12 @@ func (e *Engine) emitMetrics() {
 		Samples: []stats.Sample{
 			{
 				Time:   t,
-				Metric: metrics.VUs,
+				Metric: e.builtInMetrics.VUs,
 				Value:  float64(executionState.GetCurrentlyActiveVUsCount()),
 				Tags:   e.Options.RunTags,
 			}, {
 				Time:   t,
-				Metric: metrics.VUsMax,
+				Metric: e.builtInMetrics.VUsMax,
 				Value:  float64(executionState.GetInitializedVUsCount()),
 				Tags:   e.Options.RunTags,
 			},

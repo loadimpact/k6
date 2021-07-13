@@ -186,7 +186,8 @@ func (t *transport) measureAndEmitMetrics(unfReq *unfinishedRequest) *finishedRe
 	}
 
 	finalTags := stats.IntoSampleTags(&tags)
-	trail.SaveSamples(finalTags)
+	builtinMetrics := metrics.GetBuiltInMetrics(t.ctx)
+	trail.SaveSamples(builtinMetrics, finalTags)
 	if t.responseCallback != nil {
 		trail.Failed.Valid = true
 		if failed == 1 {
@@ -194,11 +195,11 @@ func (t *transport) measureAndEmitMetrics(unfReq *unfinishedRequest) *finishedRe
 		}
 		trail.Samples = append(trail.Samples,
 			stats.Sample{
-				Metric: metrics.HTTPReqFailed, Time: trail.EndTime, Tags: finalTags, Value: failed,
+				Metric: builtinMetrics.HTTPReqFailed, Time: trail.EndTime, Tags: finalTags, Value: failed,
 			},
 		)
 	}
-	stats.PushIfNotDone(t.ctx, t.state.Samples, trail)
+	stats.GetRegistry(t.ctx).PushContainer(t.ctx, trail)
 
 	return result
 }
