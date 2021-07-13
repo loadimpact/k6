@@ -386,7 +386,7 @@ func (e *ExecutionScheduler) Run(globalCtx, runCtx context.Context, engineOut ch
 	// We are using this context to allow lib.Executor implementations to cancel
 	// this context effectively stopping all executions.
 	//
-	// This is for addressing abortTest()
+	// This is for addressing test.abort().
 	execCtx := executor.Context(runSubCtx)
 	for _, exec := range e.executors {
 		go e.runExecutor(execCtx, runResults, engineOut, exec)
