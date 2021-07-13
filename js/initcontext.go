@@ -148,6 +148,19 @@ func (i *InitContext) requireModule(name string) (goja.Value, error) {
 	if perInstance, ok := mod.(modules.HasModuleInstancePerVU); ok {
 		mod = perInstance.NewModuleInstancePerVU()
 	}
+
+	if withContext, ok := mod.(modules.HasWithContext); ok {
+		// check that the original module was per instance as otherwise this will break and if not ... break
+		if _, ok := i.modules[name].(modules.HasModuleInstancePerVU); !ok {
+			// TODO better message ;)
+			return nil, fmt.Errorf("module `%s` implement HasWithContext, but it does not implement HasModuleInstancePerVU which means that the context will be shared between VUs which is not what needs to happen. Please contact the developer of the module with this information.", name) //nolint:lll
+		}
+		withContext.WithContext(func() context.Context {
+			return *i.ctxPtr
+		})
+		return i.runtime.ToValue(mod), nil
+	}
+
 	return i.runtime.ToValue(common.Bind(i.runtime, mod, i.ctxPtr)), nil
 }
 
